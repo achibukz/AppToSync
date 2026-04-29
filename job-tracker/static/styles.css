@@ -147,7 +147,6 @@ h2 {
 
 .hero-actions,
 .actions,
-.row-actions,
 .flash-stack {
   display: flex;
   align-items: center;
@@ -272,19 +271,6 @@ button:hover {
 
 .table-card {
   position: relative;
-}
-
-.table-card::before {
-  content: "";
-  position: absolute;
-  top: 18px;
-  left: 18px;
-  right: 18px;
-  border-top: 1px dashed rgba(120, 103, 69, 0.25);
-  pointer-events: none;
-}
-
-.table-card {
   animation-delay: 0.08s;
 }
 
@@ -703,10 +689,16 @@ pre {
   color: #c85f5f;
 }
 
+.row-actions-cell {
+  vertical-align: top;
+  width: 100px;
+}
+
 .row-actions {
   display: flex;
   gap: 8px;
   align-items: center;
+  justify-content: flex-end;
 }
 
 /* Status dropdown */
