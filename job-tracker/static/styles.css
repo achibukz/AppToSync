@@ -385,6 +385,25 @@ thead th {
   padding-top: 18px;
 }
 
+thead th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+
+thead th.sortable:hover {
+  color: var(--text);
+}
+
+.sort-icon {
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  stroke-width: 3px;
+  vertical-align: middle;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;

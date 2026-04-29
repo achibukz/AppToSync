@@ -187,13 +187,15 @@ def fetch_application_by_id(connection: sqlite3.Connection, application_id: str)
 
 
 def fetch_applications(
-    app: Flask, filters: dict[str, str] | None = None
+    app: Flask, filters: dict[str, str] | None = None, sort_by: str | None = None, order: str | None = "desc"
 ) -> list[dict[str, Any]]:
-    """Fetch all applications with optional filtering.
+    """Fetch all applications with optional filtering and sorting.
     
     Args:
         app: Flask application instance
         filters: Optional dict with 'status', 'source', and/or 'search' keys
+        sort_by: Column name to sort by
+        order: Sort direction ('asc' or 'desc')
         
     Returns:
         List of application dictionaries
@@ -215,7 +217,24 @@ def fetch_applications(
             search_value = f"%{filters['search'].lower()}%"
             parameters.extend([search_value, search_value])
 
-        query.append("ORDER BY date(applied_date) DESC, company ASC")
+        # Sorting logic
+        valid_columns = {
+            "company": "company COLLATE NOCASE",
+            "role": "role COLLATE NOCASE",
+            "status": "status COLLATE NOCASE",
+            "applied_date": "date(applied_date)",
+            "source": "source COLLATE NOCASE",
+            "follow_up_date": "date(follow_up_date)",
+            "salary": "salary_min",
+        }
+        
+        db_column = valid_columns.get(sort_by, "date(applied_date)")
+        db_order = "ASC" if order and order.lower() == "asc" else "DESC"
+        
+        # secondary sort by company also needs NOCASE for consistency
+        secondary_sort = "company COLLATE NOCASE ASC" if sort_by != "company" else "role COLLATE NOCASE ASC"
+        
+        query.append(f"ORDER BY {db_column} {db_order}, {secondary_sort}")
         rows = connection.execute(" ".join(query), parameters).fetchall()
         return [serialize_application(row) for row in rows]
     finally:

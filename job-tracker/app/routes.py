@@ -62,8 +62,11 @@ def register_routes(app: Flask) -> None:
             "source": request.args.get("source", "").strip(),
             "search": request.args.get("search", "").strip(),
         }
+        sort_by = request.args.get("sort_by", "applied_date").strip()
+        order = request.args.get("order", "desc").strip()
+        
         edit_id = request.args.get("edit", "").strip() or None
-        applications = fetch_applications(app, filters)
+        applications = fetch_applications(app, filters, sort_by=sort_by, order=order)
         editing_application = fetch_application(app, edit_id) if edit_id else None
         stats = build_stats(applications)
         return render_template(
@@ -71,6 +74,8 @@ def register_routes(app: Flask) -> None:
             applications=applications,
             stats=stats,
             filters=filters,
+            sort_by=sort_by,
+            order=order,
             status_options=STATUS_OPTIONS,
             source_options=SOURCE_OPTIONS,
             source_type_options=SOURCE_TYPE_OPTIONS,
@@ -142,13 +147,17 @@ def register_routes(app: Flask) -> None:
             "source": request.args.get("source", "").strip(),
             "search": request.args.get("search", "").strip(),
         }
-        applications = fetch_applications(app, filters)
+        sort_by = request.args.get("sort_by", "applied_date").strip()
+        order = request.args.get("order", "desc").strip()
+        applications = fetch_applications(app, filters, sort_by=sort_by, order=order)
         stats = build_stats(applications)
         return render_template(
             "index.html",
             applications=applications,
             stats=stats,
             filters=filters,
+            sort_by=sort_by,
+            order=order,
             status_options=STATUS_OPTIONS,
             source_options=SOURCE_OPTIONS,
             source_type_options=SOURCE_TYPE_OPTIONS,
@@ -179,7 +188,9 @@ def register_routes(app: Flask) -> None:
             "source": request.args.get("source", "").strip(),
             "search": request.args.get("search", "").strip(),
         }
-        return jsonify(fetch_applications(app, filters))
+        sort_by = request.args.get("sort_by", "applied_date").strip()
+        order = request.args.get("order", "desc").strip()
+        return jsonify(fetch_applications(app, filters, sort_by=sort_by, order=order))
 
     @app.post("/api/applications")
     def api_create_application() -> Any:

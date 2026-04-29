@@ -115,13 +115,76 @@
               <table>
                 <thead>
                   <tr>
-                    <th>Company</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                    <th>Applied</th>
-                    <th>Source</th>
-                    <th>Follow-up</th>
-                    <th>Salary</th>
+                    <th class="sortable" data-sort="company">
+                      Company
+                      {% if sort_by == 'company' %}
+                        {% if order == 'asc' %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                        {% else %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        {% endif %}
+                      {% endif %}
+                    </th>
+                    <th class="sortable" data-sort="role">
+                      Role
+                      {% if sort_by == 'role' %}
+                        {% if order == 'asc' %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                        {% else %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        {% endif %}
+                      {% endif %}
+                    </th>
+                    <th class="sortable" data-sort="status">
+                      Status
+                      {% if sort_by == 'status' %}
+                        {% if order == 'asc' %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                        {% else %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        {% endif %}
+                      {% endif %}
+                    </th>
+                    <th class="sortable" data-sort="applied_date">
+                      Applied
+                      {% if sort_by == 'applied_date' %}
+                        {% if order == 'asc' %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                        {% else %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        {% endif %}
+                      {% endif %}
+                    </th>
+                    <th class="sortable" data-sort="source">
+                      Source
+                      {% if sort_by == 'source' %}
+                        {% if order == 'asc' %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                        {% else %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        {% endif %}
+                      {% endif %}
+                    </th>
+                    <th class="sortable" data-sort="follow_up_date">
+                      Follow-up
+                      {% if sort_by == 'follow_up_date' %}
+                        {% if order == 'asc' %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                        {% else %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        {% endif %}
+                      {% endif %}
+                    </th>
+                    <th class="sortable" data-sort="salary">
+                      Salary
+                      {% if sort_by == 'salary' %}
+                        {% if order == 'asc' %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                        {% else %}
+                          <svg class="icon sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        {% endif %}
+                      {% endif %}
+                    </th>
                     <th>Notes</th>
                     <th>Actions</th>
                   </tr>
@@ -212,7 +275,7 @@
               <h2>Email parser preview</h2>
               <p>Use local parsing now, switch providers later without changing dashboard behavior.</p>
             </div>
-            <form method="post" action="{{ url_for('parse_email_route') }}" class="parser-form">
+            <form method="post" action="{{ url_for('parse_email_route', **request.args) }}" class="parser-form">
               <label class="full-width">
                 <span>Paste an email</span>
                 <textarea name="email_text" rows="7">{{ email_text if email_text else 'Thanks for applying to Product Designer at Canva. We would like to schedule an interview on April 30, 2026 at 2:00 PM.' }}</textarea>
@@ -553,13 +616,13 @@
         const searchText = document.getElementById('search-input').value;
         
         // Build query params
-        const params = new URLSearchParams();
-        if (status) params.append('status', status);
-        if (source) params.append('source', source);
-        if (searchText) params.append('search', searchText);
+        const params = new URLSearchParams(window.location.search);
+        if (status) params.set('status', status); else params.delete('status');
+        if (source) params.set('source', source); else params.delete('source');
+        if (searchText) params.set('search', searchText); else params.delete('search');
         
         // Redirect with filters
-        window.location.href = `?${params.toString()}`;
+        window.location.href = `/?${params.toString()}`;
       });
 
       // Search icon button
@@ -590,6 +653,29 @@
         if (e.key === 'Enter') {
           document.getElementById('apply-filter-btn').click();
         }
+      });
+
+      // Table sorting
+      document.querySelectorAll('th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+          const sortBy = th.dataset.sort;
+          const currentSortBy = '{{ sort_by }}';
+          const currentOrder = '{{ order }}';
+          
+          let newOrder = 'asc';
+          if (sortBy === currentSortBy) {
+            newOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+          } else if (sortBy === 'applied_date' || sortBy === 'follow_up_date') {
+            // Default to desc for dates
+            newOrder = 'desc';
+          }
+          
+          const params = new URLSearchParams(window.location.search);
+          params.set('sort_by', sortBy);
+          params.set('order', newOrder);
+          
+          window.location.href = `/?${params.toString()}`;
+        });
       });
     </script>
   </body>
