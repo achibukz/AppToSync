@@ -32,7 +32,7 @@ from app.parsed_emails import (
     update_parse_success,
     upsert_email_record,
 )
-from app.utils import clean_company, clean_string, utc_now
+from app.utils import clean_company, clean_string, format_list, utc_now
 from app.watchers import match_application_by_sender
 
 try:  # pragma: no cover - optional dependency guard
@@ -70,6 +70,7 @@ def get_gmail_status(app: Flask) -> dict[str, Any]:
                 "connected_at": None,
                 "last_sync_at": None,
                 "last_sync_error": None,
+                "last_sync_summary": None,
                 "sync_interval_minutes": interval,
                 "next_sync_at": None,
             }
@@ -84,6 +85,7 @@ def get_gmail_status(app: Flask) -> dict[str, Any]:
             "connected_at": row["connected_at"],
             "last_sync_at": row["last_sync_at"],
             "last_sync_error": row["last_sync_error"],
+            "last_sync_summary": row["last_sync_summary"],
             "sync_interval_minutes": sync_interval_minutes,
             "next_sync_at": next_sync_at,
         }
@@ -245,7 +247,7 @@ def sync_gmail_messages(app: Flask) -> dict[str, Any]:
         # Step 2: parse all paused emails (newly fetched + previously failed).
         gemini_model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
 
-        parsed_count, updated, pending_review, paused, not_job, parse_error = _parse_pending_emails(
+        parsed_count, updated, pending_review, paused, not_job, updated_companies, parse_error = _parse_pending_emails(
             connection, gemini_model=gemini_model
         )
         if parse_error:
@@ -253,13 +255,25 @@ def sync_gmail_messages(app: Flask) -> dict[str, Any]:
 
         connection.commit()
 
+        # Generate a summary string for notifications
+        summary = None
+        if updated_companies:
+            unique_companies = []
+            for c in updated_companies:
+                if c not in unique_companies:
+                    unique_companies.append(c)
+            
+            companies_str = format_list(unique_companies, limit=5)
+            verb = "has" if len(unique_companies) == 1 else "have"
+            summary = f"{companies_str} {verb} been updated!"
+
         connection.execute(
             """
             UPDATE gmail_connections
-            SET last_sync_at = ?, last_sync_error = ?, credentials_json = ?, updated_at = ?
+            SET last_sync_at = ?, last_sync_error = ?, last_sync_summary = ?, credentials_json = ?, updated_at = ?
             WHERE id = 1
             """,
-            (now, latest_error, credentials.to_json(), now),
+            (now, latest_error, summary, credentials.to_json(), now),
         )
         connection.commit()
         return {
@@ -267,6 +281,8 @@ def sync_gmail_messages(app: Flask) -> dict[str, Any]:
             "fetched": fetched,
             "parsed": parsed_count,
             "updated": updated,
+            "updated_companies": updated_companies,
+            "summary": summary,
             "pending_review": pending_review,
             "paused": paused,
             "not_job": not_job,
@@ -310,16 +326,17 @@ def retry_parse_email(app: Flask, gmail_message_id: str) -> dict[str, Any]:
         connection.close()
 
 
-def _parse_pending_emails(connection, *, gemini_model: str) -> tuple[int, int, int, int, int, str | None]:
+def _parse_pending_emails(connection, *, gemini_model: str) -> tuple[int, int, int, int, int, list[str], str | None]:
     """Parse every paused email row.
 
-    Returns ``(parsed, auto_updated, pending_review, paused, not_job, latest_error)``.
+    Returns ``(parsed, auto_updated, pending_review, paused, not_job, auto_updated_companies, latest_error)``.
     """
     parsed_count = 0
     auto_updated = 0
     pending_review = 0
     still_paused = 0
     not_job = 0
+    auto_updated_companies: list[str] = []
     latest_error: str | None = None
 
     for record in fetch_emails_needing_parse(connection):
@@ -390,6 +407,7 @@ def _parse_pending_emails(connection, *, gemini_model: str) -> tuple[int, int, i
                 application_id=target["id"],
             )
             auto_updated += 1
+            auto_updated_companies.append(target["company"])
             continue
 
         # No match: queue for user review.
@@ -406,7 +424,7 @@ def _parse_pending_emails(connection, *, gemini_model: str) -> tuple[int, int, i
         )
         pending_review += 1
 
-    return parsed_count, auto_updated, pending_review, still_paused, not_job, latest_error
+    return parsed_count, auto_updated, pending_review, still_paused, not_job, auto_updated_companies, latest_error
 
 
 def _email_notes(subject: str | None, parsed_status: str | None) -> str:
@@ -416,6 +434,16 @@ def _email_notes(subject: str | None, parsed_status: str | None) -> str:
     if parsed_status:
         parts.append(f"Parsed status: {parsed_status}")
     return " | ".join(parts)
+
+
+def clear_sync_summary(app: Flask) -> None:
+    """Clear the last sync summary in the database."""
+    connection = connect_db(app)
+    try:
+        connection.execute("UPDATE gmail_connections SET last_sync_summary = NULL WHERE id = 1")
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def start_gmail_polling(app: Flask) -> None:

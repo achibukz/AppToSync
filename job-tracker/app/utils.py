@@ -55,6 +55,39 @@ def to_float(value: Any) -> float | None:
         return None
 
 
+def format_list(items: list[str], limit: int | None = 5) -> str:
+    """Format a list of strings into a human-readable string with an optional limit.
+    
+    Example: ["A", "B", "C"] -> "A, B, and C"
+    Example with limit=2: ["A", "B", "C"] -> "A, B, and 1 other"
+    
+    Args:
+        items: List of strings to format
+        limit: Maximum number of items to show before truncating
+        
+    Returns:
+        Formatted string
+    """
+    if not items:
+        return ""
+    
+    count = len(items)
+    if limit is not None and count > limit:
+        visible = items[:limit]
+        others = count - limit
+        suffix = "other" if others == 1 else "others"
+        
+        if limit == 1:
+            return f"{visible[0]} and {others} {suffix}"
+        return f"{', '.join(visible)}, and {others} {suffix}"
+
+    if count == 1:
+        return items[0]
+    if count == 2:
+        return f"{items[0]} and {items[1]}"
+    return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+
 def parse_date(value: str | None) -> date | None:
     """Parse ISO format date string to date object.
     

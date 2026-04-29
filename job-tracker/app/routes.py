@@ -13,6 +13,7 @@ from app.config import (
 )
 from app.database import connect_db
 from app.gmail import (
+    clear_sync_summary,
     disconnect_gmail,
     finish_gmail_authorization,
     get_gmail_status,
@@ -39,7 +40,7 @@ from app.models import (
     insert_application,
     update_application,
 )
-from app.utils import utc_now
+from app.utils import format_list, utc_now
 from app.validators import form_payload, normalize_payload
 
 
@@ -92,6 +93,11 @@ def _render_dashboard(
     editing_application = fetch_application(app, edit_id) if edit_id else None
     stats = build_stats(applications)
     gmail_status = get_gmail_status(app)
+
+    # If there's a pending summary from an auto-sync or manual sync, flash it now.
+    if gmail_status.get("last_sync_summary"):
+        flash(gmail_status["last_sync_summary"], "success")
+        clear_sync_summary(app)
 
     connection = connect_db(app)
     try:
@@ -304,10 +310,10 @@ def register_routes(app: Flask) -> None:
         """Synchronize Gmail messages on demand."""
         result = sync_gmail_messages(app)
         if result["ok"]:
+            # The dashboard (_render_dashboard) will pick up the last_sync_summary
+            # and flash it automatically upon redirect.
             flash(
-                "Gmail sync complete: "
-                f"{result.get('fetched', 0)} fetched, "
-                f"{result.get('updated', 0)} auto-updated, "
+                f"Gmail sync complete: {result.get('fetched', 0)} fetched, "
                 f"{result.get('pending_review', 0)} pending review, "
                 f"{result.get('paused', 0)} paused.",
                 "success",
