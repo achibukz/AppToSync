@@ -100,7 +100,8 @@ class GmailSyncTests(unittest.TestCase):
         self.assertTrue(payload["connected"])
         self.assertEqual(payload["connected_email"], "user@example.com")
 
-    def test_gmail_sync_deduplicates_messages_and_uses_parser(self) -> None:
+    def test_gmail_sync_stores_messages_and_queues_for_review(self) -> None:
+        """Sync should fetch each message, parse via Gemini, and queue unmatched ones for review."""
         connection = connect_db(self.app)
         try:
             connection.execute(
@@ -139,45 +140,119 @@ class GmailSyncTests(unittest.TestCase):
         messages = {
             "gmail-1": {
                 "internalDate": "1745900000000",
-                "payload": {"headers": [{"name": "Subject", "value": "Thanks for applying"}]},
+                "payload": {"headers": [{"name": "Subject", "value": "Thanks for applying"}, {"name": "From", "value": "hr@example.co"}]},
                 "snippet": "Hello",
             },
             "gmail-2": {
                 "internalDate": "1745900100000",
-                "payload": {"headers": [{"name": "Subject", "value": "Interview follow-up"}]},
+                "payload": {"headers": [{"name": "Subject", "value": "Interview follow-up"}, {"name": "From", "value": "hr@example.co"}]},
                 "snippet": "Hello again",
             },
         }
 
-        def fake_parse_job_email(email_text: str, provider: str = "local", gemini_model: str | None = None):
-            return {
+        def fake_strict_parser(email_text: str, gemini_model: str | None = None):
+            return ({
                 "is_job_related": True,
                 "company": "Example Co",
                 "role": "Product Designer",
                 "status": "Interview Scheduled" if "Interview" in email_text else "Applied",
                 "interview_date": None,
                 "confidence": 0.95,
-                "extracted_by": "heuristic",
-            }
+                "extracted_by": "gemini",
+                "reasoning_summary": None,
+                "field_explanations": {},
+            }, None)
 
         with patch("app.gmail._credentials_from_row", return_value=FakeCredentials()), patch(
             "app.gmail._refresh_credentials_if_needed", return_value=None
         ), patch("app.gmail._build_gmail_service", return_value=object()), patch(
             "app.gmail._list_message_ids", return_value=["gmail-1", "gmail-2"]
         ), patch("app.gmail._get_message", side_effect=lambda service, message_id: messages[message_id]), patch(
-            "app.gmail.parse_job_email", side_effect=fake_parse_job_email
+            "app.gmail.parse_job_email_strict", side_effect=fake_strict_parser
         ):
             result = sync_gmail_messages(self.app)
 
         self.assertTrue(result["ok"])
-        self.assertEqual(result["created"], 1)
-        self.assertEqual(result["updated"], 1)
+        self.assertEqual(result["fetched"], 2)
+        self.assertEqual(result["parsed"], 2)
+        # Both fall through to pending review (no existing app to auto-update).
+        self.assertEqual(result["pending_review"], 2)
 
+        # No applications auto-created.
         apps = self.app.test_client().get("/api/applications").get_json()
-        self.assertEqual(len(apps), 1)
-        self.assertEqual(apps[0]["company"], "Example Co")
-        self.assertEqual(apps[0]["source_type"], "gmail")
-        self.assertEqual(apps[0]["gmail_message_id"], "gmail-1")
+        self.assertEqual(apps, [])
+
+        # Both emails are in the queue.
+        emails = self.app.test_client().get("/api/emails").get_json()
+        self.assertEqual(len(emails["pending_review"]), 2)
+
+    def test_gmail_sync_dedup_second_sync_is_noop(self) -> None:
+        connection = connect_db(self.app)
+        try:
+            connection.execute(
+                """
+                INSERT INTO gmail_connections (
+                    id, credentials_json, connected_email, connected_at, last_sync_at,
+                    last_sync_error, sync_interval_minutes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    1,
+                    '{"token":"x","refresh_token":"y","token_uri":"https://oauth2.googleapis.com/token","client_id":"id","client_secret":"secret","scopes":["https://www.googleapis.com/auth/gmail.readonly"]}',
+                    "user@example.com",
+                    utc_now(),
+                    None,
+                    None,
+                    15,
+                    utc_now(),
+                    utc_now(),
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        class FakeCredentials:
+            valid = True
+            expired = False
+            refresh_token = "y"
+
+            def to_json(self) -> str:
+                return '{"token":"x"}'
+
+        messages = {
+            "gmail-1": {"internalDate": "1745900000000",
+                        "payload": {"headers": [{"name": "From", "value": "hr@example.co"}, {"name": "Subject", "value": "Thanks"}]},
+                        "snippet": "thanks"},
+        }
+
+        def fake_strict_parser(email_text: str, gemini_model: str | None = None):
+            return ({
+                "is_job_related": True, "company": "X", "role": "Y", "status": "Applied",
+                "interview_date": None, "confidence": 0.9, "extracted_by": "gemini",
+                "reasoning_summary": None, "field_explanations": {},
+            }, None)
+
+        common_patches = [
+            patch("app.gmail._credentials_from_row", return_value=FakeCredentials()),
+            patch("app.gmail._refresh_credentials_if_needed", return_value=None),
+            patch("app.gmail._build_gmail_service", return_value=object()),
+            patch("app.gmail._list_message_ids", return_value=["gmail-1"]),
+            patch("app.gmail._get_message", side_effect=lambda s, mid: messages[mid]),
+            patch("app.gmail.parse_job_email_strict", side_effect=fake_strict_parser),
+        ]
+        for p in common_patches:
+            p.start()
+        try:
+            first = sync_gmail_messages(self.app)
+            second = sync_gmail_messages(self.app)
+        finally:
+            for p in common_patches:
+                p.stop()
+
+        self.assertEqual(first["fetched"], 1)
+        self.assertEqual(second["fetched"], 0)
+        self.assertEqual(second["parsed"], 0)
 
 
 if __name__ == "__main__":

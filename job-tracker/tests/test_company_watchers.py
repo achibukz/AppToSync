@@ -104,26 +104,42 @@ class FakeCredentials:
         return '{"token":"x","refresh_token":"y"}'
 
 
+_PARSER_DEFAULT_COMPANIES = {
+    "msg-greenhouse": ("Google", "Software Engineer"),
+    "msg-linkedin": ("Google", "Software Engineer"),
+    "msg-not-job": (None, None),
+    "msg-stripe": ("Stripe", "Backend Engineer"),
+    "msg-unknown": ("RandomCo", "Product Manager"),
+}
+
+
 def _make_parser(job_related_ids: set[str], status_map: dict[str, str] | None = None):
-    """Return a fake parse_job_email that classifies messages by their snippet."""
+    """Return a fake parse_job_email_strict that classifies messages by their snippet.
+
+    Returns ``(result_dict, error_or_none)`` matching the strict parser contract.
+    """
     status_map = status_map or {}
 
-    def _parse(text: str, *, provider: str = "local", gemini_model=None):
+    def _parse(text: str, gemini_model=None):
         for mid, msg in FAKE_MESSAGES.items():
             snippet = msg.get("snippet", "")
             if snippet and snippet in text:
                 is_job = mid in job_related_ids
-                return {
+                company, role = _PARSER_DEFAULT_COMPANIES.get(mid, (None, None))
+                return ({
                     "is_job_related": is_job,
-                    "company": None,
-                    "role": None,
+                    "company": company if is_job else None,
+                    "role": role if is_job else None,
                     "status": status_map.get(mid, "Applied") if is_job else None,
                     "interview_date": None,
                     "confidence": 0.9 if is_job else 0.1,
-                    "extracted_by": "heuristic",
-                }
-        return {"is_job_related": False, "company": None, "role": None, "status": None,
-                "interview_date": None, "confidence": 0.1, "extracted_by": "heuristic"}
+                    "extracted_by": "gemini",
+                    "reasoning_summary": None,
+                    "field_explanations": {},
+                }, None)
+        return ({"is_job_related": False, "company": None, "role": None, "status": None,
+                 "interview_date": None, "confidence": 0.1, "extracted_by": "gemini",
+                 "reasoning_summary": None, "field_explanations": {}}, None)
 
     return _parse
 
@@ -208,7 +224,7 @@ class WatcherTestBase(unittest.TestCase):
             patch("app.gmail._build_gmail_service", return_value=object()),
             patch("app.gmail._list_message_ids", return_value=message_ids),
             patch("app.gmail._get_message", side_effect=lambda _s, mid: messages[mid]),
-            patch("app.gmail.parse_job_email", side_effect=parser),
+            patch("app.gmail.parse_job_email_strict", side_effect=parser),
         ):
             return sync_gmail_messages(self.app)
 
@@ -360,7 +376,7 @@ class TestGmailSyncWatcherBranch(WatcherTestBase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["updated"], 1)
-        self.assertEqual(result["created"], 0)
+        self.assertEqual(result["pending_review"], 0)
 
         apps = self.app.test_client().get("/api/applications").get_json()
         self.assertEqual(len(apps), 1)
@@ -381,7 +397,7 @@ class TestGmailSyncWatcherBranch(WatcherTestBase):
         self.assertEqual(apps[0]["status"], "Interview Scheduled")  # not downgraded
 
     def test_watcher_skips_non_job_related_email(self) -> None:
-        """Even with a matching watcher, a non-job-related email (e.g. billing) is skipped."""
+        """Even with a matching watcher, a non-job-related email (e.g. billing) is marked not_job."""
         self._seed_gmail_connection()
         app_id = self._create_application("LinkedIn", "PM", "Applied")
         self._set_watchers(app_id, ["@linkedin.com"])
@@ -390,13 +406,13 @@ class TestGmailSyncWatcherBranch(WatcherTestBase):
         parser = _make_parser(set())  # no messages marked as job-related
         result = self._run_sync(["msg-not-job"], parser)
 
-        self.assertEqual(result["skipped"], 1)
+        self.assertEqual(result["not_job"], 1)
         self.assertEqual(result["updated"], 0)
         apps = self.app.test_client().get("/api/applications").get_json()
         self.assertEqual(apps[0]["status"], "Applied")  # unchanged
 
     def test_watcher_deduplicates_second_sync(self) -> None:
-        """Syncing the same message twice doesn't double-update."""
+        """Syncing the same message twice doesn't double-update — the second sync is a no-op."""
         self._seed_gmail_connection()
         app_id = self._create_application("Google", "SWE", "Applied")
         self._set_watchers(app_id, ["@greenhouse.io"])
@@ -405,7 +421,9 @@ class TestGmailSyncWatcherBranch(WatcherTestBase):
         self._run_sync(["msg-greenhouse"], parser)
         result2 = self._run_sync(["msg-greenhouse"], parser)
 
-        self.assertEqual(result2["skipped"], 1)
+        # The second sync must not re-process the message.
+        self.assertEqual(result2["fetched"], 0)
+        self.assertEqual(result2["parsed"], 0)
         self.assertEqual(result2["updated"], 0)
 
     def test_multiple_applications_each_with_own_watcher(self) -> None:
@@ -433,28 +451,18 @@ class TestGmailSyncWatcherBranch(WatcherTestBase):
 # ---------------------------------------------------------------------------
 
 class TestGmailSyncFallbackBranch(WatcherTestBase):
-    def test_fallback_creates_new_application_when_no_watcher(self) -> None:
+    def test_fallback_queues_unmatched_email_for_review(self) -> None:
+        """No watcher and no matching app → email goes to pending_review (no auto-create)."""
         self._seed_gmail_connection()
+        result = self._run_sync(["msg-unknown"], _make_parser({"msg-unknown"}))
 
-        def parser(text, *, provider="local", gemini_model=None):
-            return {
-                "is_job_related": True,
-                "company": "RandomCo",
-                "role": "Product Manager",
-                "status": "Applied",
-                "interview_date": None,
-                "confidence": 0.8,
-                "extracted_by": "heuristic",
-            }
-
-        result = self._run_sync(["msg-unknown"], parser)
-
-        self.assertEqual(result["created"], 1)
+        self.assertEqual(result["pending_review"], 1)
+        # No application is auto-created anymore.
         apps = self.app.test_client().get("/api/applications").get_json()
-        self.assertEqual(apps[0]["company"], "RandomCo")
+        self.assertEqual(apps, [])
 
-    def test_fallback_stamps_gmail_message_id_on_fuzzy_matched_record(self) -> None:
-        """If a fuzzy-matched manual record has no gmail_message_id, the current id is saved."""
+    def test_fallback_fuzzy_match_auto_updates_existing_record(self) -> None:
+        """If a fuzzy-matched manual record exists, it's silently updated and the id is stamped."""
         self._seed_gmail_connection()
         conn = self._conn()
         try:
@@ -472,12 +480,10 @@ class TestGmailSyncFallbackBranch(WatcherTestBase):
         finally:
             conn.close()
 
-        def parser(text, *, provider="local", gemini_model=None):
-            return {"is_job_related": True, "company": "RandomCo", "role": "Product Manager",
-                    "status": "Applied", "interview_date": None, "confidence": 0.8,
-                    "extracted_by": "heuristic"}
+        result = self._run_sync(["msg-unknown"], _make_parser({"msg-unknown"}))
 
-        self._run_sync(["msg-unknown"], parser)
+        self.assertEqual(result["updated"], 1)
+        self.assertEqual(result["pending_review"], 0)
         apps = self.app.test_client().get("/api/applications").get_json()
         self.assertEqual(len(apps), 1)
         self.assertEqual(apps[0]["gmail_message_id"], "msg-unknown")

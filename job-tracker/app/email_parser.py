@@ -63,6 +63,30 @@ def parse_job_email(
     }
 
 
+def parse_job_email_strict(
+    email_text: str,
+    gemini_model: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Parse an email using Gemini only, with no local fallback.
+
+    Returns a tuple ``(result, error)``. On success, ``result`` is the parsed
+    payload and ``error`` is None. On failure (missing API key, quota,
+    network, malformed JSON, etc.), ``result`` is None and ``error`` is a
+    human-readable message — the caller should pause the email and retry later.
+    """
+    selected_model = normalize_gemini_model(gemini_model)
+    result, error = gemini_parse_job_email_with_error(email_text, model=selected_model)
+    if result is None:
+        return None, error
+    return {
+        **result,
+        "provider": "gemini",
+        "provider_used": "gemini",
+        "provider_error": None,
+        "gemini_model": selected_model,
+    }, None
+
+
 def gemini_parse_job_email(email_text: str, model: str | None = None) -> dict[str, Any] | None:
     """Parse email using Gemini AI.
     

@@ -20,13 +20,17 @@ from app.config import (
     GMAIL_SYNC_INTERVAL_MINUTES,
 )
 from app.database import connect_db
-from app.email_parser import parse_job_email
+from app.email_parser import parse_job_email_strict
 from app.models import (
-    fetch_application_by_gmail_message_id,
     fetch_application_by_id,
     find_fuzzy_application,
-    insert_application,
     update_application,
+)
+from app.parsed_emails import (
+    fetch_emails_needing_parse,
+    update_parse_failure,
+    update_parse_success,
+    upsert_email_record,
 )
 from app.utils import clean_company, clean_string, utc_now
 from app.watchers import match_application_by_sender
@@ -215,108 +219,39 @@ def sync_gmail_messages(app: Flask) -> dict[str, Any]:
         query = f"in:anywhere after:{since_epoch}"
         now = utc_now()
 
-        created = 0
-        updated = 0
-        skipped = 0
+        fetched = 0
         latest_error: str | None = None
 
-        provider = os.getenv("AI_PROVIDER", "gemini").strip()
-        gemini_model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
-
+        # Step 1: fetch new Gmail messages and store them in the parsed_emails queue.
         for message_id in _list_message_ids(service, query):
             try:
                 message = _get_message(service, message_id)
-                text = _message_to_text(message)
-                sender = _header_value(message, "from") or ""
-                notes = _gmail_notes(message, {})
-
-                watcher_app_id = match_application_by_sender(connection, sender)
-
-                if watcher_app_id:
-                    # ── Watcher branch ──────────────────────────────────────────
-                    # Deduplicate: skip if this exact message was already stored.
-                    if fetch_application_by_gmail_message_id(connection, message_id):
-                        skipped += 1
-                        continue
-
-                    target = fetch_application_by_id(connection, watcher_app_id)
-                    if target is None:
-                        skipped += 1
-                        continue
-
-                    parsed = parse_job_email(text, provider=provider, gemini_model=gemini_model)
-                    notes = _gmail_notes(message, parsed)
-
-                    # Require the parser to confirm the email is job-related.
-                    # This prevents noise: e.g. a LinkedIn order-confirmation email
-                    # matching a watcher won't update a job application.
-                    if not parsed.get("is_job_related"):
-                        skipped += 1
-                        continue
-
-                    status = _choose_status(target.get("status"), parsed.get("status"))
-                    payload = {
-                        "company": target["company"],
-                        "role": target["role"],
-                        "status": status,
-                        "notes": _merge_notes(target.get("notes"), notes),
-                        "source_type": "gmail",
-                        "gmail_message_id": target.get("gmail_message_id") or message_id,
-                    }
-                    update_application(connection, watcher_app_id, payload, partial=True)
-                    updated += 1
-
-                else:
-                    # ── Fallback branch ─────────────────────────────────────────
-                    # No watcher: parse the email and match by company + role.
-                    parsed = parse_job_email(text, provider=provider, gemini_model=gemini_model)
-                    notes = _gmail_notes(message, parsed)
-
-                    if not parsed.get("is_job_related"):
-                        skipped += 1
-                        continue
-
-                    company = clean_string(parsed.get("company"))
-                    role = clean_string(parsed.get("role"))
-                    if not company or not role:
-                        skipped += 1
-                        continue
-
-                    company = clean_company(company)
-                    existing = fetch_application_by_gmail_message_id(connection, message_id)
-                    if existing is None:
-                        existing = find_fuzzy_application(connection, company, role)
-
-                    status = _choose_status(existing.get("status") if existing else None, parsed.get("status"))
-                    applied_date = _message_date(message)
-                    existing_msg_id = (existing.get("gmail_message_id") or message_id) if existing else message_id
-                    payload = {
-                        "company": company,
-                        "role": role,
-                        "job_url": existing.get("job_url") if existing else None,
-                        "source": existing.get("source") if existing else "Other",
-                        "status": status,
-                        "applied_date": existing.get("applied_date") if existing else applied_date,
-                        "salary_currency": existing.get("salary_currency") if existing else "PHP",
-                        "notes": _merge_notes(existing.get("notes") if existing else None, notes),
-                        "follow_up_date": existing.get("follow_up_date") if existing else None,
-                        "salary_min": existing.get("salary_min") if existing else None,
-                        "salary_max": existing.get("salary_max") if existing else None,
-                        "source_type": "gmail",
-                        "gmail_message_id": existing_msg_id,
-                    }
-
-                    if existing is None:
-                        insert_application(connection, payload, now)
-                        created += 1
-                    else:
-                        update_application(connection, existing["id"], payload, partial=True)
-                        updated += 1
-
+                inserted = upsert_email_record(
+                    connection,
+                    gmail_message_id=message_id,
+                    received_at=_message_received_at(message),
+                    from_address=_header_value(message, "from"),
+                    subject=_header_value(message, "subject"),
+                    body_text=_message_to_text(message),
+                )
+                if inserted:
+                    fetched += 1
             except Exception as exc:  # pragma: no cover - defensive sync guard
                 latest_error = str(exc)
-                skipped += 1
                 continue
+
+        connection.commit()
+
+        # Step 2: parse all paused emails (newly fetched + previously failed).
+        gemini_model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
+
+        parsed_count, updated, pending_review, paused, not_job, parse_error = _parse_pending_emails(
+            connection, gemini_model=gemini_model
+        )
+        if parse_error:
+            latest_error = parse_error
+
+        connection.commit()
 
         connection.execute(
             """
@@ -329,14 +264,158 @@ def sync_gmail_messages(app: Flask) -> dict[str, Any]:
         connection.commit()
         return {
             "ok": True,
-            "created": created,
+            "fetched": fetched,
+            "parsed": parsed_count,
             "updated": updated,
-            "skipped": skipped,
+            "pending_review": pending_review,
+            "paused": paused,
+            "not_job": not_job,
+            # Legacy fields for callers that haven't been updated.
+            "created": 0,
+            "skipped": not_job + paused,
             "error": latest_error,
             "last_sync_at": now,
         }
     finally:
         connection.close()
+
+
+def retry_parse_email(app: Flask, gmail_message_id: str) -> dict[str, Any]:
+    """Force a single email back into the parse queue and parse it immediately.
+
+    Returns a dict describing the outcome: ``{ok, parse_status, error}``.
+    """
+    from app.parsed_emails import fetch_email, mark_for_retry
+
+    connection = connect_db(app)
+    try:
+        record = fetch_email(connection, gmail_message_id)
+        if record is None:
+            return {"ok": False, "error": "Email not found.", "parse_status": None}
+
+        mark_for_retry(connection, gmail_message_id)
+        connection.commit()
+
+        gemini_model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
+        _parse_pending_emails(connection, gemini_model=gemini_model)
+        connection.commit()
+
+        updated = fetch_email(connection, gmail_message_id) or {}
+        return {
+            "ok": True,
+            "parse_status": updated.get("parse_status"),
+            "error": updated.get("parse_error"),
+        }
+    finally:
+        connection.close()
+
+
+def _parse_pending_emails(connection, *, gemini_model: str) -> tuple[int, int, int, int, int, str | None]:
+    """Parse every paused email row.
+
+    Returns ``(parsed, auto_updated, pending_review, paused, not_job, latest_error)``.
+    """
+    parsed_count = 0
+    auto_updated = 0
+    pending_review = 0
+    still_paused = 0
+    not_job = 0
+    latest_error: str | None = None
+
+    for record in fetch_emails_needing_parse(connection):
+        message_id = record["gmail_message_id"]
+        body = record.get("body_text") or ""
+        sender = record.get("from_address") or ""
+
+        result, error = parse_job_email_strict(body, gemini_model=gemini_model)
+        if result is None:
+            update_parse_failure(connection, message_id, error or "Parse failed.")
+            still_paused += 1
+            latest_error = error or latest_error
+            continue
+
+        parsed_count += 1
+        is_job = bool(result.get("is_job_related"))
+        company = clean_string(result.get("company"))
+        role = clean_string(result.get("role"))
+        parsed_status_value = result.get("status")
+        confidence = result.get("confidence")
+        reasoning = result.get("reasoning_summary")
+
+        if not is_job:
+            update_parse_success(
+                connection,
+                message_id,
+                parse_status="not_job",
+                is_job_related=False,
+                parsed_company=company,
+                parsed_role=role,
+                parsed_status=parsed_status_value,
+                parsed_confidence=confidence,
+                parsed_reasoning=reasoning,
+            )
+            not_job += 1
+            continue
+
+        # Job-related: try to route to an existing application.
+        target_id = match_application_by_sender(connection, sender)
+        target = fetch_application_by_id(connection, target_id) if target_id else None
+
+        if target is None and company and role:
+            cleaned = clean_company(company)
+            target = find_fuzzy_application(connection, cleaned, role)
+
+        if target is not None:
+            new_status = _choose_status(target.get("status"), parsed_status_value)
+            notes = _email_notes(record.get("subject"), parsed_status_value)
+            payload = {
+                "company": target["company"],
+                "role": target["role"],
+                "status": new_status,
+                "notes": _merge_notes(target.get("notes"), notes),
+                "source_type": "gmail",
+                "gmail_message_id": target.get("gmail_message_id") or message_id,
+            }
+            update_application(connection, target["id"], payload, partial=True)
+            update_parse_success(
+                connection,
+                message_id,
+                parse_status="auto_updated",
+                is_job_related=True,
+                parsed_company=company,
+                parsed_role=role,
+                parsed_status=parsed_status_value,
+                parsed_confidence=confidence,
+                parsed_reasoning=reasoning,
+                application_id=target["id"],
+            )
+            auto_updated += 1
+            continue
+
+        # No match: queue for user review.
+        update_parse_success(
+            connection,
+            message_id,
+            parse_status="pending_review",
+            is_job_related=True,
+            parsed_company=company,
+            parsed_role=role,
+            parsed_status=parsed_status_value,
+            parsed_confidence=confidence,
+            parsed_reasoning=reasoning,
+        )
+        pending_review += 1
+
+    return parsed_count, auto_updated, pending_review, still_paused, not_job, latest_error
+
+
+def _email_notes(subject: str | None, parsed_status: str | None) -> str:
+    parts = ["Gmail sync"]
+    if subject:
+        parts.append(subject)
+    if parsed_status:
+        parts.append(f"Parsed status: {parsed_status}")
+    return " | ".join(parts)
 
 
 def start_gmail_polling(app: Flask) -> None:
@@ -547,14 +626,15 @@ def _strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", " ", text)
 
 
-def _message_date(message: dict[str, Any]) -> str:
+def _message_received_at(message: dict[str, Any]) -> str | None:
+    """Return the message timestamp as ISO 8601 UTC, or None if unavailable."""
     internal_date = message.get("internalDate")
-    if internal_date:
-        try:
-            return datetime.fromtimestamp(int(internal_date) / 1000, tz=timezone.utc).date().isoformat()
-        except (TypeError, ValueError):
-            pass
-    return datetime.now(timezone.utc).date().isoformat()
+    if not internal_date:
+        return None
+    try:
+        return datetime.fromtimestamp(int(internal_date) / 1000, tz=timezone.utc).isoformat()
+    except (TypeError, ValueError):
+        return None
 
 
 def _reference_epoch(reference_time: str | None, sync_interval_minutes: int) -> int:
@@ -604,17 +684,6 @@ def _merge_notes(existing_notes: str | None, new_notes: str | None) -> str | Non
     if new_notes and new_notes in (existing_notes or ""):
         return existing_notes
     return "\n\n".join(notes)
-
-
-def _gmail_notes(message: dict[str, Any], parsed: dict[str, Any]) -> str:
-    subject = _header_value(message, "subject")
-    note_parts = ["Gmail sync"]
-    if subject:
-        note_parts.append(subject)
-    status = parsed.get("status")
-    if status:
-        note_parts.append(f"Parsed status: {status}")
-    return " | ".join(note_parts)
 
 
 def _header_value(message: dict[str, Any], header_name: str) -> str | None:

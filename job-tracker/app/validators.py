@@ -33,6 +33,7 @@ def normalize_payload(payload: dict[str, Any], partial: bool = False) -> dict[st
         "notes": clean_string(payload.get("notes")),
         "follow_up_date": clean_string(payload.get("follow_up_date")),
         "source_type": clean_string(payload.get("source_type")) or "manual",
+        "gmail_message_id": clean_string(payload.get("gmail_message_id")),
     }
 
     if partial:

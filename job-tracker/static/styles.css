@@ -1181,3 +1181,151 @@ pre {
     width: 95%;
   }
 }
+
+/* ── Emails tab ────────────────────────────────────────────────────── */
+
+.tab-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: white;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.emails-card {
+  padding: 22px 24px;
+  margin-bottom: 18px;
+  background: var(--panel);
+  animation: fade-up 0.52s ease both;
+}
+
+.emails-paused {
+  background: linear-gradient(135deg, rgba(252, 240, 232, 0.96), rgba(255, 255, 255, 0.98));
+}
+
+.email-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.email-item {
+  padding: 14px 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--bg-2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.email-item.paused {
+  border-color: #f0c89a;
+  background: #fdf6ed;
+}
+
+.email-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.email-from {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.email-attempts {
+  margin-left: auto;
+  color: #b87a37;
+}
+
+.email-subject {
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.email-parsed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.email-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  background: var(--panel-soft);
+  border: 1px solid var(--panel-border);
+}
+
+.email-tag.company {
+  background: #dbeafe;
+  border-color: #bfdbfe;
+  color: #1e40af;
+  font-weight: 600;
+}
+
+.email-tag.role {
+  background: #fce7f3;
+  border-color: #f9a8d4;
+  color: #9d174d;
+}
+
+.email-tag.status {
+  background: #d1fae5;
+  border-color: #6ee7b7;
+  color: #065f46;
+}
+
+.email-tag.confidence {
+  background: var(--panel-soft);
+  color: var(--muted);
+}
+
+.email-reasoning {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.email-error {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.email-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.button.danger {
+  background: var(--danger);
+  color: white;
+  border-color: var(--danger);
+}
+
+.button.danger:hover {
+  background: #c46060;
+  border-color: #c46060;
+}

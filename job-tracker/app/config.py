@@ -23,7 +23,7 @@ GEMINI_MODEL_OPTIONS = [
     "gemini-2.5-flash-lite",
 ]
 
-DEFAULT_GEMINI_MODEL = GEMINI_MODEL_OPTIONS[0]
+DEFAULT_GEMINI_MODEL = GEMINI_MODEL_OPTIONS[1]
 
 # Gmail OAuth and polling settings.
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]

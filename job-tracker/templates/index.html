@@ -82,12 +82,19 @@
       <!-- Tabs -->
       <div class="tabs-container">
         <div class="tabs-header">
-          <button class="tab-btn {% if active_tab != 'parser' %}active{% endif %}" data-tab="dashboard">Dashboard</button>
-          <button class="tab-btn {% if active_tab == 'parser' %}active{% endif %}" data-tab="parser">Email Parser</button>
+          <button class="tab-btn {% if active_tab != 'emails' %}active{% endif %}" data-tab="dashboard">Dashboard</button>
+          <button class="tab-btn {% if active_tab == 'emails' %}active{% endif %}" data-tab="emails">
+            Emails
+            {% set _pending_count = pending_emails|length %}
+            {% set _paused_count = paused_emails|length %}
+            {% if _pending_count + _paused_count > 0 %}
+            <span class="tab-badge">{{ _pending_count + _paused_count }}</span>
+            {% endif %}
+          </button>
         </div>
 
         <!-- Dashboard Tab -->
-        <div class="tab-content {% if active_tab != 'parser' %}active{% endif %}" id="dashboard">
+        <div class="tab-content {% if active_tab != 'emails' %}active{% endif %}" id="dashboard">
           <div class="tab-actions">
             <button class="button" id="add-app-btn">+ Add Application</button>
           </div>
@@ -304,67 +311,90 @@
           </article>
         </div>
 
-        <!-- Email Parser Tab -->
-        <div class="tab-content {% if active_tab == 'parser' %}active{% endif %}" id="parser">
-          <article class="card parser-card">
+        <!-- Emails Tab -->
+        <div class="tab-content {% if active_tab == 'emails' %}active{% endif %}" id="emails">
+          <article class="card emails-card">
             <div class="section-heading">
-              <h2>Email parser preview</h2>
-              <p>Use local parsing now, switch providers later without changing dashboard behavior.</p>
+              <h2>Pending review</h2>
+              <p>Job emails the parser flagged as a new application. Accept to add it, reject to dismiss it forever.</p>
             </div>
-            <form method="post" action="{{ url_for('parse_email_route', **request.args) }}" class="parser-form">
-              <label class="full-width">
-                <span>Paste an email</span>
-                <textarea name="email_text" rows="7">{{ email_text if email_text else 'Thanks for applying to Product Designer at Canva. We would like to schedule an interview on April 30, 2026 at 2:00 PM.' }}</textarea>
-              </label>
-              <div class="parser-controls">
-                <label>
-                  <span>Provider</span>
-                  <select name="provider">
-                    <option value="local" {% if selected_provider == 'local' %}selected{% endif %}>local</option>
-                    <option value="gemini" {% if selected_provider == 'gemini' %}selected{% endif %}>gemini</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Gemini model</span>
-                  <select name="gemini_model">
-                    {% for model in gemini_model_options %}
-                    <option value="{{ model }}" {% if selected_gemini_model == model %}selected{% endif %}>{{ model }}</option>
-                    {% endfor %}
-                  </select>
-                </label>
-                <button class="button parser-submit" type="submit">Parse email</button>
-              </div>
-            </form>
 
-            {% if parse_result %}
-            <div class="result-panel">
-              <pre>{{ parse_result | tojson(indent=2) }}</pre>
-            </div>
-            <div class="reasoning-panel">
-              <h3>{% if parse_result.provider_used == 'gemini' %}Gemini explanation{% else %}Parser status{% endif %}</h3>
-              {% if parse_result.provider_error %}
-              <p class="danger">{{ parse_result.provider_error }}</p>
-              {% endif %}
-              {% if parse_result.reasoning_summary %}
-              <p>{{ parse_result.reasoning_summary }}</p>
-              {% elif parse_result.provider_used == 'gemini' %}
-              <p>Gemini parsed the email and returned structured data. The field notes below show which parts of the message supported each extracted value.</p>
-              {% endif %}
-              {% if parse_result.field_explanations %}
-              <dl class="reasoning-list">
-                {% for field_name, field_note in parse_result.field_explanations.items() %}
-                <div>
-                  <dt>{{ field_name }}</dt>
-                  <dd>{{ field_note }}</dd>
+            {% if pending_emails %}
+            <div class="email-list">
+              {% for email in pending_emails %}
+              <div class="email-item" data-message-id="{{ email.gmail_message_id }}">
+                <div class="email-meta">
+                  <span class="email-from">{{ email.from_address or 'Unknown sender' }}</span>
+                  <span class="email-date">{{ email.received_at[:10] if email.received_at else '' }}</span>
                 </div>
-                {% endfor %}
-              </dl>
-              {% elif parse_result.provider_used == 'gemini' %}
-              <p class="muted">No field-level explanation was returned, but Gemini was used for the parse.</p>
-              {% endif %}
+                <div class="email-subject">{{ email.subject or '(no subject)' }}</div>
+                <div class="email-parsed">
+                  <span class="email-tag company">{{ email.parsed_company or '?' }}</span>
+                  <span class="email-tag role">{{ email.parsed_role or '?' }}</span>
+                  {% if email.parsed_status %}
+                  <span class="email-tag status">{{ email.parsed_status }}</span>
+                  {% endif %}
+                  {% if email.parsed_confidence is not none %}
+                  <span class="email-tag confidence">{{ '%.0f'|format(email.parsed_confidence * 100) }}%</span>
+                  {% endif %}
+                </div>
+                {% if email.parsed_reasoning %}
+                <p class="email-reasoning">{{ email.parsed_reasoning }}</p>
+                {% endif %}
+                <div class="email-actions">
+                  <form method="post" action="{{ url_for('accept_email_route', message_id=email.gmail_message_id) }}" style="display:inline;">
+                    <button class="button" type="submit">Accept</button>
+                  </form>
+                  <button class="button secondary edit-accept-btn"
+                          data-message-id="{{ email.gmail_message_id }}"
+                          data-company="{{ email.parsed_company or '' }}"
+                          data-role="{{ email.parsed_role or '' }}"
+                          data-status="{{ email.parsed_status or 'Applied' }}"
+                          data-applied-date="{{ email.received_at[:10] if email.received_at else today }}"
+                          type="button">Edit & Accept</button>
+                  <form method="post" action="{{ url_for('reject_email_route', message_id=email.gmail_message_id) }}" style="display:inline;">
+                    <button class="button danger" type="submit">Reject</button>
+                  </form>
+                </div>
+              </div>
+              {% endfor %}
             </div>
+            {% else %}
+            <p class="muted">No emails awaiting review.</p>
             {% endif %}
           </article>
+
+          {% if paused_emails %}
+          <article class="card emails-card emails-paused">
+            <div class="section-heading">
+              <h2>Paused — Gemini parse failed</h2>
+              <p>These emails could not be parsed (likely a Gemini quota or transient error). They will retry automatically on the next sync.</p>
+            </div>
+            <div class="email-list">
+              {% for email in paused_emails %}
+              <div class="email-item paused" data-message-id="{{ email.gmail_message_id }}">
+                <div class="email-meta">
+                  <span class="email-from">{{ email.from_address or 'Unknown sender' }}</span>
+                  <span class="email-date">{{ email.received_at[:10] if email.received_at else '' }}</span>
+                  <span class="email-attempts">{{ email.parse_attempts }} attempt(s)</span>
+                </div>
+                <div class="email-subject">{{ email.subject or '(no subject)' }}</div>
+                {% if email.parse_error %}
+                <p class="email-error">{{ email.parse_error }}</p>
+                {% endif %}
+                <div class="email-actions">
+                  <form method="post" action="{{ url_for('retry_email_route', message_id=email.gmail_message_id) }}" style="display:inline;">
+                    <button class="button" type="submit">Retry now</button>
+                  </form>
+                  <form method="post" action="{{ url_for('reject_email_route', message_id=email.gmail_message_id) }}" style="display:inline;">
+                    <button class="button danger" type="submit">Reject</button>
+                  </form>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </article>
+          {% endif %}
         </div>
       </div>
 
@@ -603,6 +633,33 @@
             document.body.appendChild(form);
             form.submit();
           }
+        });
+      });
+
+      // Edit & Accept button — open modal pre-filled from a parsed email
+      document.querySelectorAll('.edit-accept-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const messageId = btn.dataset.messageId;
+
+          document.getElementById('modal-title').textContent = 'Create from email';
+          document.getElementById('submit-btn').textContent = 'Create application';
+          appForm.action = `/emails/${messageId}/accept`;
+          appForm.method = 'POST';
+          appForm.reset();
+
+          appForm.querySelector('input[name="company"]').value = btn.dataset.company || '';
+          appForm.querySelector('input[name="role"]').value = btn.dataset.role || '';
+          appForm.querySelector('input[name="applied_date"]').value = btn.dataset.appliedDate || '{{ today }}';
+          appForm.querySelector('input[name="salary_currency"]').value = '{{ default_currency }}';
+          appForm.querySelector('select[name="status"]').value = btn.dataset.status || 'Applied';
+          appForm.querySelector('select[name="source"]').value = 'Other';
+          appForm.querySelector('select[name="source_type"]').value = 'gmail';
+
+          watcherTags = [];
+          renderTags();
+          watcherField.style.display = 'none';
+          modal.classList.add('active');
         });
       });
 

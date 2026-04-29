@@ -112,6 +112,34 @@ def init_db(app: Flask) -> None:
             """
         )
 
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS parsed_emails (
+                gmail_message_id TEXT PRIMARY KEY,
+                received_at TEXT,
+                from_address TEXT,
+                subject TEXT,
+                body_text TEXT,
+                parse_status TEXT NOT NULL,
+                parse_error TEXT,
+                parse_attempts INTEGER NOT NULL DEFAULT 0,
+                last_parsed_at TEXT,
+                is_job_related INTEGER,
+                parsed_company TEXT,
+                parsed_role TEXT,
+                parsed_status TEXT,
+                parsed_confidence REAL,
+                parsed_reasoning TEXT,
+                application_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_parsed_emails_status ON parsed_emails(parse_status)"
+        )
+
         connection.commit()
     finally:
         connection.close()
