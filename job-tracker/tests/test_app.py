@@ -135,6 +135,40 @@ class JobTrackerAppTests(unittest.TestCase):
         empty_response = client.get("/api/applications")
         self.assertEqual(empty_response.get_json(), [])
 
+    def test_api_list_sorting(self) -> None:
+        client = self.app.test_client()
+        # Create two applications
+        client.post("/api/applications", json={
+            "company": "B Company",
+            "role": "Role 1",
+            "status": "Applied",
+            "applied_date": "2026-04-20"
+        })
+        client.post("/api/applications", json={
+            "company": "A Company",
+            "role": "Role 2",
+            "status": "Applied",
+            "applied_date": "2026-04-21"
+        })
+
+        # Test default sort (applied_date DESC)
+        resp = client.get("/api/applications")
+        apps = resp.get_json()
+        self.assertEqual(apps[0]["company"], "A Company")
+        self.assertEqual(apps[1]["company"], "B Company")
+
+        # Test sort by company ASC
+        resp = client.get("/api/applications?sort_by=company&order=asc")
+        apps = resp.get_json()
+        self.assertEqual(apps[0]["company"], "A Company")
+        self.assertEqual(apps[1]["company"], "B Company")
+
+        # Test sort by company DESC
+        resp = client.get("/api/applications?sort_by=company&order=desc")
+        apps = resp.get_json()
+        self.assertEqual(apps[0]["company"], "B Company")
+        self.assertEqual(apps[1]["company"], "A Company")
+
 
 if __name__ == "__main__":
     unittest.main()
