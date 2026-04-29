@@ -7,10 +7,14 @@ from typing import Any
 
 from google import genai
 
-from app.config import MONTHS
+from app.config import DEFAULT_GEMINI_MODEL, GEMINI_MODEL_OPTIONS, MONTHS
 
 
-def parse_job_email(email_text: str, provider: str = "local") -> dict[str, Any]:
+def parse_job_email(
+    email_text: str,
+    provider: str = "local",
+    gemini_model: str | None = None,
+) -> dict[str, Any]:
     """Parse a job-related email using the specified provider.
     
     Falls back to local parsing if Gemini fails.
@@ -18,19 +22,25 @@ def parse_job_email(email_text: str, provider: str = "local") -> dict[str, Any]:
     Args:
         email_text: Email content to parse
         provider: Provider to use ('gemini' or 'local')
+        gemini_model: Gemini model name when provider is gemini
         
     Returns:
         Dictionary with extracted job details and metadata
     """
     provider = (provider or "local").strip().lower()
+    selected_model = normalize_gemini_model(gemini_model)
     if provider == "gemini":
-        gemini_result, gemini_error = gemini_parse_job_email_with_error(email_text)
+        gemini_result, gemini_error = gemini_parse_job_email_with_error(
+            email_text,
+            model=selected_model,
+        )
         if gemini_result is not None:
             return {
                 **gemini_result,
                 "provider": provider,
                 "provider_used": "gemini",
                 "provider_error": None,
+                "gemini_model": selected_model,
             }
 
         local_result = local_parse_job_email(email_text)
@@ -40,6 +50,7 @@ def parse_job_email(email_text: str, provider: str = "local") -> dict[str, Any]:
             "provider_used": "local",
             "provider_error": gemini_error
             or "Gemini request failed or GEMINI_API_KEY was missing; local parser was used instead.",
+            "gemini_model": selected_model,
         }
 
     local_result = local_parse_job_email(email_text)
@@ -48,27 +59,33 @@ def parse_job_email(email_text: str, provider: str = "local") -> dict[str, Any]:
         "provider": provider,
         "provider_used": "local",
         "provider_error": None,
+        "gemini_model": selected_model,
     }
 
 
-def gemini_parse_job_email(email_text: str) -> dict[str, Any] | None:
+def gemini_parse_job_email(email_text: str, model: str | None = None) -> dict[str, Any] | None:
     """Parse email using Gemini AI.
     
     Args:
         email_text: Email content to parse
+        model: Gemini model to use
         
     Returns:
         Parsed job details or None if parsing failed
     """
-    gemini_result, _ = gemini_parse_job_email_with_error(email_text)
+    gemini_result, _ = gemini_parse_job_email_with_error(email_text, model=model)
     return gemini_result
 
 
-def gemini_parse_job_email_with_error(email_text: str) -> tuple[dict[str, Any] | None, str | None]:
+def gemini_parse_job_email_with_error(
+    email_text: str,
+    model: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
     """Parse email using Gemini AI, returning both result and error.
     
     Args:
         email_text: Email content to parse
+        model: Gemini model to use
         
     Returns:
         Tuple of (parsed_result, error_message)
@@ -76,6 +93,7 @@ def gemini_parse_job_email_with_error(email_text: str) -> tuple[dict[str, Any] |
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
         return None, "Gemini request failed because GEMINI_API_KEY or GOOGLE_API_KEY was not set."
+    selected_model = normalize_gemini_model(model)
 
     prompt = (
         "Extract structured job application details from this email. "
@@ -93,7 +111,7 @@ def gemini_parse_job_email_with_error(email_text: str) -> tuple[dict[str, Any] |
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=selected_model,
             contents=prompt,
             config=genai.types.GenerateContentConfig(
                 temperature=0,
@@ -320,3 +338,11 @@ def clean_company(value: str) -> str:
     """
     cleaned = re.sub(r"\s+", " ", value).strip().strip(".,")
     return cleaned
+
+
+def normalize_gemini_model(model: str | None) -> str:
+    """Normalize Gemini model input to a supported option."""
+    candidate = (model or DEFAULT_GEMINI_MODEL).strip()
+    if candidate in GEMINI_MODEL_OPTIONS:
+        return candidate
+    return DEFAULT_GEMINI_MODEL

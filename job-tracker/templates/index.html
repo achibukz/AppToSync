@@ -220,6 +220,14 @@
                     <option value="gemini" {% if selected_provider == 'gemini' %}selected{% endif %}>gemini</option>
                   </select>
                 </label>
+                <label>
+                  <span>Gemini model</span>
+                  <select name="gemini_model">
+                    {% for model in gemini_model_options %}
+                    <option value="{{ model }}" {% if selected_gemini_model == model %}selected{% endif %}>{{ model }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
                 <button class="button parser-submit" type="submit">Parse email</button>
               </div>
             </form>

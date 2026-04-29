@@ -41,10 +41,12 @@ DATABASE_PATH=job_tracker.db
 SEED_DEMO_DATA=true
 AI_PROVIDER=local
 PROVIDER_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
 ## Prototype notes
 
 - `local` AI parsing currently uses heuristic extraction so the app runs without paid APIs.
+- When provider is `gemini`, you can choose the model in the parser tab (currently `gemini-2.5-flash` and `gemini-2.5-flash-lite`).
 - You can later wire `gemini` or `openai` into the parser adapter without changing the dashboard or API contract.
 - The PRD/design still call for a Node/React implementation eventually; this prototype proves the workflow and core data model first.

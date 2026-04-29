@@ -6,7 +6,14 @@ from typing import Any
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 
-from app.config import SOURCE_OPTIONS, SOURCE_TYPE_OPTIONS, STATUS_OPTIONS, STATUS_STYLES
+from app.config import (
+    DEFAULT_GEMINI_MODEL,
+    GEMINI_MODEL_OPTIONS,
+    SOURCE_OPTIONS,
+    SOURCE_TYPE_OPTIONS,
+    STATUS_OPTIONS,
+    STATUS_STYLES,
+)
 from app.database import connect_db
 from app.email_parser import parse_job_email
 from app.models import (
@@ -72,6 +79,8 @@ def register_routes(app: Flask) -> None:
             parse_result=None,
             email_text="",
             selected_provider=os.getenv("AI_PROVIDER", "local").strip(),
+            selected_gemini_model=os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip(),
+            gemini_model_options=GEMINI_MODEL_OPTIONS,
             active_tab="dashboard",
             today=date.today().isoformat(),
             default_currency="PHP",
@@ -122,7 +131,11 @@ def register_routes(app: Flask) -> None:
         """Parse email and display results."""
         email_text = request.form.get("email_text", "").strip()
         provider = request.form.get("provider", os.getenv("AI_PROVIDER", "local")).strip()
-        parse_result = parse_job_email(email_text, provider=provider)
+        gemini_model = request.form.get(
+            "gemini_model",
+            os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
+        ).strip()
+        parse_result = parse_job_email(email_text, provider=provider, gemini_model=gemini_model)
         active_tab = "parser"
         filters = {
             "status": request.args.get("status", "").strip(),
@@ -144,6 +157,8 @@ def register_routes(app: Flask) -> None:
             parse_result=parse_result,
             email_text=email_text,
             selected_provider=provider,
+            selected_gemini_model=parse_result.get("gemini_model", gemini_model),
+            gemini_model_options=GEMINI_MODEL_OPTIONS,
             active_tab=active_tab,
             today=date.today().isoformat(),
             default_currency="PHP",
