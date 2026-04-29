@@ -17,6 +17,14 @@ SOURCE_OPTIONS = ["LinkedIn", "Indeed", "Prosple", "Direct", "Other"]
 # Source type options for how applications are captured
 SOURCE_TYPE_OPTIONS = ["gmail", "chrome_extension", "manual"]
 
+# Gemini model options exposed in the parser UI
+GEMINI_MODEL_OPTIONS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+]
+
+DEFAULT_GEMINI_MODEL = GEMINI_MODEL_OPTIONS[0]
+
 # CSS styling classes for different statuses
 STATUS_STYLES = {
     "Applied": "blue",

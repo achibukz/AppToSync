@@ -180,7 +180,7 @@ class TestGeminiEmailParserErrors:
             assert error is not None
             assert "GEMINI_API_KEY" in error or "GOOGLE_API_KEY" in error
 
-    @mock.patch("app.genai.Client")
+    @mock.patch("app.email_parser.genai.Client")
     def test_api_exception_handling(self, mock_client):
         """Test that API exceptions are caught and returned as errors."""
         mock_client.return_value.models.generate_content.side_effect = Exception(
@@ -194,7 +194,7 @@ class TestGeminiEmailParserErrors:
             assert error is not None
             assert "API Connection Error" in error
 
-    @mock.patch("app.genai.Client")
+    @mock.patch("app.email_parser.genai.Client")
     def test_empty_response(self, mock_client):
         """Test handling of empty API response."""
         mock_response = mock.Mock()
@@ -207,7 +207,7 @@ class TestGeminiEmailParserErrors:
             assert result is None
             assert error == "Gemini response did not include parsed text."
 
-    @mock.patch("app.genai.Client")
+    @mock.patch("app.email_parser.genai.Client")
     def test_invalid_json_response(self, mock_client):
         """Test handling of invalid JSON in response."""
         mock_response = mock.Mock()
@@ -220,7 +220,7 @@ class TestGeminiEmailParserErrors:
             assert result is None
             assert error == "Gemini response text was not valid JSON."
 
-    @mock.patch("app.genai.Client")
+    @mock.patch("app.email_parser.genai.Client")
     def test_valid_json_response_structure(self, mock_client):
         """Test parsing a valid JSON response from Gemini."""
         mock_response = mock.Mock()
@@ -254,7 +254,7 @@ class TestGeminiEmailParserErrors:
             assert result["interview_date"] == "2026-05-15"
             assert result["confidence"] == 0.92
 
-    @mock.patch("app.genai.Client")
+    @mock.patch("app.email_parser.genai.Client")
     def test_missing_optional_fields_in_json(self, mock_client):
         """Test that missing optional fields don't cause errors."""
         mock_response = mock.Mock()
@@ -281,7 +281,7 @@ class TestGeminiEmailParserErrors:
 class TestGeminiParseFunctionWrapper:
     """Test the wrapper function without error handling."""
 
-    @mock.patch("app.genai.Client")
+    @mock.patch("app.email_parser.genai.Client")
     def test_gemini_parse_job_email_success(self, mock_client):
         """Test gemini_parse_job_email returns result on success."""
         mock_response = mock.Mock()
@@ -306,7 +306,7 @@ class TestGeminiParseFunctionWrapper:
             assert result is not None
             assert result["company"] == "TechCorp"
 
-    @mock.patch("app.genai.Client")
+    @mock.patch("app.email_parser.genai.Client")
     def test_gemini_parse_job_email_failure(self, mock_client):
         """Test gemini_parse_job_email returns None on failure."""
         mock_client.return_value.models.generate_content.side_effect = Exception(
@@ -328,7 +328,7 @@ class TestIntegrationWithApp:
     )
     def test_parse_email_with_gemini_provider(self):
         """Test the full parse_job_email flow with Gemini provider."""
-        from app import parse_job_email
+        from app.email_parser import parse_job_email
 
         email = "Thanks for applying to Product Manager at Amazon. We would like to schedule an interview."
         result = parse_job_email(email, provider="gemini")
@@ -340,7 +340,7 @@ class TestIntegrationWithApp:
 
     def test_parse_email_with_local_provider(self):
         """Test the full parse_job_email flow with local provider."""
-        from app import parse_job_email
+        from app.email_parser import parse_job_email
 
         email = "Thanks for applying to Product Manager at Amazon. We would like to schedule an interview."
         result = parse_job_email(email, provider="local")
