@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Job Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <div class="backdrop-grid" aria-hidden="true"></div>
+
+    <main class="shell">
+      <section class="top-note" aria-label="weekly focus">
+        <p>Weekly focus: capture jobs quickly, review pipeline daily, follow up before overdue.</p>
+      </section>
+
+      <section class="hero card">
+        <div>
+          <p class="eyebrow">Job Tracker</p>
+          <h1>Track applications and follow-ups</h1>
+          <p class="lede">Fast capture, status clarity, and follow-up discipline in one workspace.</p>
+        </div>
+        <div class="hero-kicker" aria-label="pipeline reminder">
+          <p class="kicker-label">Pipeline rule</p>
+          <p class="kicker-value">No application sits untouched for 7+ days.</p>
+        </div>
+      </section>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <section class="flash-stack">
+        {% for category, message in messages %}
+        <article class="flash-card {{ category }}">{{ message }}</article>
+        {% endfor %}
+      </section>
+      {% endif %}
+      {% endwith %}
+
+      <section class="stats-grid">
+        <article class="stat card"><span>Total roles tracked</span><strong>{{ stats.total }}</strong></article>
+        <article class="stat card"><span>Active pipeline</span><strong>{{ stats.active }}</strong></article>
+        <article class="stat card"><span>Interviews queued</span><strong>{{ stats.interviews }}</strong></article>
+        <article class="stat card"><span>Needs follow-up</span><strong>{{ stats.overdue }}</strong></article>
+      </section>
+
+      <!-- Tabs -->
+      <div class="tabs-container">
+        <div class="tabs-header">
+          <button class="tab-btn {% if active_tab != 'parser' %}active{% endif %}" data-tab="dashboard">Dashboard</button>
+          <button class="tab-btn {% if active_tab == 'parser' %}active{% endif %}" data-tab="parser">Email Parser</button>
+        </div>
+
+        <!-- Dashboard Tab -->
+        <div class="tab-content {% if active_tab != 'parser' %}active{% endif %}" id="dashboard">
+          <div class="tab-actions">
+            <button class="button" id="add-app-btn">+ Add Application</button>
+          </div>
+
+          <article class="card table-card">
+            <div class="section-heading">
+              <h2>Applications</h2>
+              <p>{{ applications|length }} visible record(s), sorted by applied date.</p>
+            </div>
+            <div class="filter-bar">
+              <button class="search-icon-btn" id="search-icon-btn" title="Search">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <path d="m21 21-4.35-4.35"></path>
+                </svg>
+              </button>
+              <button class="button secondary" id="filter-btn">Filter</button>
+              
+              <!-- Filter Dropdown -->
+              <div class="filter-dropdown" id="filter-dropdown">
+                <div class="filter-group">
+                  <label class="filter-label">Status</label>
+                  <select class="filter-select" id="filter-status">
+                    <option value="">All statuses</option>
+                    {% for option in status_options %}
+                    <option value="{{ option }}" {% if filters.status == option %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="filter-group">
+                  <label class="filter-label">Source</label>
+                  <select class="filter-select" id="filter-source">
+                    <option value="">All sources</option>
+                    {% for option in source_options %}
+                    <option value="{{ option }}" {% if filters.source == option %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="filter-actions">
+                  <button class="button" id="apply-filter-btn">Apply</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Floating Search Box -->
+            <div class="floating-search" id="floating-search">
+              <input type="text" class="floating-search-input" id="search-input" placeholder="Search company or role...">
+              <button class="floating-search-close" id="close-search">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+              <small style="color: var(--muted);">Press Enter to search or click Apply in filter</small>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Company</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Applied</th>
+                    <th>Source</th>
+                    <th>Follow-up</th>
+                    <th>Salary</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for application in applications %}
+                  <tr class="{% if application.is_overdue %}overdue{% endif %}" data-id="{{ application.id }}">
+                    <td class="company-cell">
+                      {% if application.job_url %}
+                      <a href="{{ application.job_url }}" target="_blank" rel="noreferrer" class="company-link">{{ application.company }}</a>
+                      {% else %}
+                      <span>{{ application.company }}</span>
+                      {% endif %}
+                    </td>
+                    <td>{{ application.role }}</td>
+                    <td class="status-cell">
+                      <span class="badge {{ application.status_class }} status-badge" data-id="{{ application.id }}" data-status="{{ application.status }}" style="cursor: pointer;">
+                        {{ application.status }}
+                      </span>
+                      <div class="status-dropdown" data-id="{{ application.id }}">
+                        {% for option in status_options %}
+                        <button class="status-option" data-status="{{ option }}">{{ option }}</button>
+                        {% endfor %}
+                      </div>
+                    </td>
+                    <td>{{ application.applied_date }}</td>
+                    <td>{{ application.source or 'Other' }}</td>
+                    <td>
+                      <span class="{% if application.is_overdue %}danger{% else %}muted{% endif %}">
+                        {{ application.follow_up_date or '—' }}
+                      </span>
+                    </td>
+                    <td class="salary-cell">
+                      <span class="muted">
+                        {% if application.salary_min and application.salary_max %}
+                        {{ application.salary_min|int }}-{{ application.salary_max|int }} {{ application.salary_currency }}
+                        {% elif application.salary_min %}
+                        {{ application.salary_min|int }}+ {{ application.salary_currency }}
+                        {% else %}
+                        —
+                        {% endif %}
+                      </span>
+                    </td>
+                    <td class="notes-cell">
+                      <span class="muted" title="{{ application.notes or '' }}">
+                        {% if application.notes %}
+                        {{ application.notes[:30] }}{% if application.notes|length > 30 %}...{% endif %}
+                        {% else %}
+                        —
+                        {% endif %}
+                      </span>
+                    </td>
+                    <td class="row-actions">
+                      <button class="icon-btn edit edit-btn" data-id="{{ application.id }}" title="Edit">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                      </button>
+                      <button class="icon-btn delete delete-btn" data-id="{{ application.id }}" title="Delete">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="3 6 5 6 21 6"></polyline>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                          <line x1="10" y1="11" x2="10" y2="17"></line>
+                          <line x1="14" y1="11" x2="14" y2="17"></line>
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                  {% else %}
+                  <tr><td colspan="9" class="empty-state">No applications yet. Click "Add Application" to get started.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+
+        <!-- Email Parser Tab -->
+        <div class="tab-content {% if active_tab == 'parser' %}active{% endif %}" id="parser">
+          <article class="card parser-card">
+            <div class="section-heading">
+              <h2>Email parser preview</h2>
+              <p>Use local parsing now, switch providers later without changing dashboard behavior.</p>
+            </div>
+            <form method="post" action="{{ url_for('parse_email_route') }}" class="parser-form">
+              <label class="full-width">
+                <span>Paste an email</span>
+                <textarea name="email_text" rows="7">{{ email_text if email_text else 'Thanks for applying to Product Designer at Canva. We would like to schedule an interview on April 30, 2026 at 2:00 PM.' }}</textarea>
+              </label>
+              <div class="parser-controls">
+                <label>
+                  <span>Provider</span>
+                  <select name="provider">
+                    <option value="local" {% if selected_provider == 'local' %}selected{% endif %}>local</option>
+                    <option value="gemini" {% if selected_provider == 'gemini' %}selected{% endif %}>gemini</option>
+                  </select>
+                </label>
+                <button class="button parser-submit" type="submit">Parse email</button>
+              </div>
+            </form>
+
+            {% if parse_result %}
+            <div class="result-panel">
+              <pre>{{ parse_result | tojson(indent=2) }}</pre>
+            </div>
+            <div class="reasoning-panel">
+              <h3>{% if parse_result.provider_used == 'gemini' %}Gemini explanation{% else %}Parser status{% endif %}</h3>
+              {% if parse_result.provider_error %}
+              <p class="danger">{{ parse_result.provider_error }}</p>
+              {% endif %}
+              {% if parse_result.reasoning_summary %}
+              <p>{{ parse_result.reasoning_summary }}</p>
+              {% elif parse_result.provider_used == 'gemini' %}
+              <p>Gemini parsed the email and returned structured data. The field notes below show which parts of the message supported each extracted value.</p>
+              {% endif %}
+              {% if parse_result.field_explanations %}
+              <dl class="reasoning-list">
+                {% for field_name, field_note in parse_result.field_explanations.items() %}
+                <div>
+                  <dt>{{ field_name }}</dt>
+                  <dd>{{ field_note }}</dd>
+                </div>
+                {% endfor %}
+              </dl>
+              {% elif parse_result.provider_used == 'gemini' %}
+              <p class="muted">No field-level explanation was returned, but Gemini was used for the parse.</p>
+              {% endif %}
+            </div>
+            {% endif %}
+          </article>
+        </div>
+      </div>
+
+      <!-- Modal for Add/Edit Application -->
+      <div class="modal" id="app-modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 id="modal-title">Add Application</h2>
+            <button class="modal-close" id="close-modal">&times;</button>
+          </div>
+          <form method="post" id="app-form" action="{{ url_for('create_application_route') }}" class="grid-form">
+            <label>
+              <span>Company *</span>
+              <input name="company" required value="">
+            </label>
+            <label>
+              <span>Role *</span>
+              <input name="role" required value="">
+            </label>
+            <label>
+              <span>Job URL</span>
+              <input name="job_url" type="url" placeholder="https://">
+            </label>
+            <label>
+              <span>Source</span>
+              <select name="source">
+                {% for option in source_options %}
+                <option value="{{ option }}">{{ option }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Status</span>
+              <select name="status">
+                {% for option in status_options %}
+                <option value="{{ option }}">{{ option }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Applied date</span>
+              <input name="applied_date" type="date" value="{{ today }}">
+            </label>
+            <label>
+              <span>Follow-up date</span>
+              <input name="follow_up_date" type="date">
+            </label>
+            <label>
+              <span>Salary min</span>
+              <input name="salary_min" type="number" step="0.01">
+            </label>
+            <label>
+              <span>Salary max</span>
+              <input name="salary_max" type="number" step="0.01">
+            </label>
+            <label>
+              <span>Currency</span>
+              <input name="salary_currency" value="{{ default_currency }}">
+            </label>
+            <label>
+              <span>Source type</span>
+              <select name="source_type">
+                {% for option in source_type_options %}
+                <option value="{{ option }}">{{ option }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="full-width">
+              <span>Notes</span>
+              <textarea name="notes" rows="4"></textarea>
+            </label>
+            <div class="actions full-width">
+              <button class="button" type="submit" id="submit-btn">Create application</button>
+              <button class="button secondary" type="button" id="cancel-btn">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      // Tab switching
+      const tabBtns = document.querySelectorAll('.tab-btn');
+      const tabContents = document.querySelectorAll('.tab-content');
+
+      tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          tabBtns.forEach(b => b.classList.remove('active'));
+          tabContents.forEach(c => c.classList.remove('active'));
+          btn.classList.add('active');
+          document.getElementById(btn.dataset.tab).classList.add('active');
+        });
+      });
+
+      // Modal management
+      const modal = document.getElementById('app-modal');
+      const addBtn = document.getElementById('add-app-btn');
+      const closeBtn = document.getElementById('close-modal');
+      const cancelBtn = document.getElementById('cancel-btn');
+      const appForm = document.getElementById('app-form');
+      const statusOptions = {{ status_options | tojson }};
+      const sourceOptions = {{ source_options | tojson }};
+
+      addBtn.addEventListener('click', () => {
+        document.getElementById('modal-title').textContent = 'Add Application';
+        document.getElementById('submit-btn').textContent = 'Create application';
+        appForm.action = '{{ url_for("create_application_route") }}';
+        appForm.method = 'POST';
+        appForm.reset();
+        appForm.querySelector('input[name="applied_date"]').value = '{{ today }}';
+        appForm.querySelector('input[name="salary_currency"]').value = '{{ default_currency }}';
+        appForm.querySelector('select[name="status"]').value = 'Applied';
+        appForm.querySelector('select[name="source"]').value = 'LinkedIn';
+        appForm.querySelector('select[name="source_type"]').value = 'manual';
+        modal.classList.add('active');
+      });
+
+      closeBtn.addEventListener('click', () => modal.classList.remove('active'));
+      cancelBtn.addEventListener('click', () => modal.classList.remove('active'));
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.classList.remove('active');
+      });
+
+      // Edit button click
+      document.querySelectorAll('.edit-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const appId = btn.dataset.id;
+          const row = btn.closest('tr');
+          
+          document.getElementById('modal-title').textContent = 'Edit Application';
+          document.getElementById('submit-btn').textContent = 'Save changes';
+          appForm.action = `/applications/${appId}/update`;
+          appForm.method = 'POST';
+          
+          // Get current data via API
+          fetch(`/api/applications/${appId}`)
+            .then(res => res.json())
+            .then(app => {
+              appForm.querySelector('input[name="company"]').value = app.company;
+              appForm.querySelector('input[name="role"]').value = app.role;
+              appForm.querySelector('input[name="job_url"]').value = app.job_url || '';
+              appForm.querySelector('select[name="source"]').value = app.source || 'Other';
+              appForm.querySelector('select[name="status"]').value = app.status || 'Applied';
+              appForm.querySelector('input[name="applied_date"]').value = app.applied_date;
+              appForm.querySelector('input[name="follow_up_date"]').value = app.follow_up_date || '';
+              appForm.querySelector('input[name="salary_min"]').value = app.salary_min || '';
+              appForm.querySelector('input[name="salary_max"]').value = app.salary_max || '';
+              appForm.querySelector('input[name="salary_currency"]').value = app.salary_currency || '{{ default_currency }}';
+              appForm.querySelector('select[name="source_type"]').value = app.source_type || 'manual';
+              appForm.querySelector('textarea[name="notes"]').value = app.notes || '';
+            });
+          
+          modal.classList.add('active');
+        });
+      });
+
+      // Delete button click
+      document.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          if (confirm('Delete this application?')) {
+            const appId = btn.dataset.id;
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = `/applications/${appId}/delete`;
+            document.body.appendChild(form);
+            form.submit();
+          }
+        });
+      });
+
+      // Status badge click - show dropdown
+      document.querySelectorAll('.status-badge').forEach(badge => {
+        badge.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const appId = badge.dataset.id;
+          const dropdown = document.querySelector(`.status-dropdown[data-id="${appId}"]`);
+          
+          // Close all other dropdowns
+          document.querySelectorAll('.status-dropdown.active').forEach(d => {
+            if (d !== dropdown) d.classList.remove('active');
+          });
+          
+          dropdown.classList.toggle('active');
+        });
+      });
+
+      // Prevent status dropdown from closing when clicking inside it
+      document.querySelectorAll('.status-dropdown').forEach(dropdown => {
+        dropdown.addEventListener('click', (e) => {
+          e.stopPropagation();
+        });
+      });
+
+      // Status option click - change status
+      document.querySelectorAll('.status-option').forEach(option => {
+        option.addEventListener('click', (e) => {
+          const appId = e.target.closest('.status-dropdown').dataset.id;
+          const newStatus = e.target.dataset.status;
+          
+          // Update via API
+          fetch(`/api/applications/${appId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: newStatus })
+          })
+          .then(res => res.json())
+          .then(app => {
+            // Update the badge text and color
+            const badge = document.querySelector(`.status-badge[data-id="${appId}"]`);
+            badge.textContent = newStatus;
+            badge.dataset.status = newStatus;
+            
+            // Close dropdown
+            document.querySelector(`.status-dropdown[data-id="${appId}"]`).classList.remove('active');
+            
+            // Reload page to update colors
+            location.reload();
+          });
+        });
+      });
+
+      // Filter button toggle
+      const filterBtn = document.getElementById('filter-btn');
+      const filterDropdown = document.getElementById('filter-dropdown');
+      
+      filterBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        filterDropdown.classList.toggle('active');
+      });
+
+      // Prevent filter dropdown from closing when clicking inside it
+      filterDropdown.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+
+      // Close filter dropdown when clicking outside
+      document.addEventListener('click', (e) => {
+        if (!filterBtn.contains(e.target) && !filterDropdown.contains(e.target)) {
+          filterDropdown.classList.remove('active');
+        }
+      });
+
+      // Apply filter button
+      const applyFilterBtn = document.getElementById('apply-filter-btn');
+      const filterStatus = document.getElementById('filter-status');
+      const filterSource = document.getElementById('filter-source');
+
+      applyFilterBtn.addEventListener('click', () => {
+        const status = filterStatus.value;
+        const source = filterSource.value;
+        const searchText = document.getElementById('search-input').value;
+        
+        // Build query params
+        const params = new URLSearchParams();
+        if (status) params.append('status', status);
+        if (source) params.append('source', source);
+        if (searchText) params.append('search', searchText);
+        
+        // Redirect with filters
+        window.location.href = `?${params.toString()}`;
+      });
+
+      // Search icon button
+      const searchIconBtn = document.getElementById('search-icon-btn');
+      const floatingSearch = document.getElementById('floating-search');
+      const closeSearchBtn = document.getElementById('close-search');
+      const searchInput = document.getElementById('search-input');
+
+      searchIconBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        floatingSearch.classList.toggle('active');
+        if (floatingSearch.classList.contains('active')) {
+          searchInput.focus();
+        }
+      });
+
+      floatingSearch.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+
+      closeSearchBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        floatingSearch.classList.remove('active');
+      });
+
+      // Search on Enter
+      searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          document.getElementById('apply-filter-btn').click();
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.sqlite3
+job_tracker.db
+.env
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+job-tracker/.env

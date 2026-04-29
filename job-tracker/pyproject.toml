@@ -1,0 +1,15 @@
+[project]
+name = "job-tracker"
+version = "0.1.0"
+description = "Local job application tracker prototype"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+	"dotenv>=0.9.9",
+	"Flask>=3.0,<4.0",
+	"google-genai>=1.47.0",
+	"python-dotenv>=1.2.1",
+]
+
+[project.scripts]
+job-tracker = "main:main"
