@@ -231,6 +231,9 @@
                       {% else %}
                       <span>{{ application.company }}</span>
                       {% endif %}
+                      {% if application.source_type == 'gmail' %}
+                      <span class="source-badge gmail" title="Auto-captured from Gmail">Gmail</span>
+                      {% endif %}
                     </td>
                     <td>{{ application.role }}</td>
                     <td class="status-cell">
@@ -433,6 +436,13 @@
               <span>Notes</span>
               <textarea name="notes" rows="4"></textarea>
             </label>
+            <div class="full-width watcher-field" id="watcher-field">
+              <span class="watcher-field-label">Email Watchers</span>
+              <p class="watcher-field-hint">Sender emails or domains that deliver updates about this application. e.g. <code>@greenhouse.io</code> or <code>noreply@lever.co</code>. The parser still reads each email to confirm it's job-related.</p>
+              <div class="tag-input-container" id="watcher-tags-container">
+                <input type="text" class="tag-input-field" id="watcher-tag-input" placeholder="Add email or domain, then press Enter" autocomplete="off">
+              </div>
+            </div>
             <div class="actions full-width">
               <button class="button" type="submit" id="submit-btn">Create application</button>
               <button class="button secondary" type="button" id="cancel-btn">Cancel</button>
@@ -466,6 +476,60 @@
       const sourceOptions = {{ source_options | tojson }};
       const statusStyles = {{ status_styles | tojson }};
 
+      // ── Tag input for email watchers ─────────────────────────────────────
+      let watcherTags = [];
+      const tagsContainer = document.getElementById('watcher-tags-container');
+      const tagInput = document.getElementById('watcher-tag-input');
+      const watcherField = document.getElementById('watcher-field');
+
+      function renderTags() {
+        tagsContainer.querySelectorAll('.tag').forEach(t => t.remove());
+        appForm.querySelectorAll('input[name="watcher_patterns"]').forEach(i => i.remove());
+        watcherTags.forEach((pattern, index) => {
+          const tag = document.createElement('span');
+          tag.className = 'tag';
+          tag.innerHTML = `${pattern}<button type="button" class="tag-remove" data-index="${index}" tabindex="-1">×</button>`;
+          tagsContainer.insertBefore(tag, tagInput);
+          const hidden = document.createElement('input');
+          hidden.type = 'hidden';
+          hidden.name = 'watcher_patterns';
+          hidden.value = pattern;
+          appForm.appendChild(hidden);
+        });
+        tagsContainer.querySelectorAll('.tag-remove').forEach(btn => {
+          btn.addEventListener('click', () => {
+            watcherTags.splice(parseInt(btn.dataset.index), 1);
+            renderTags();
+          });
+        });
+      }
+
+      function addTag(value) {
+        const trimmed = value.trim().toLowerCase();
+        if (!trimmed || watcherTags.includes(trimmed)) return;
+        watcherTags.push(trimmed);
+        renderTags();
+        tagInput.value = '';
+      }
+
+      tagInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ',') {
+          e.preventDefault();
+          addTag(tagInput.value);
+        }
+        if (e.key === 'Backspace' && tagInput.value === '' && watcherTags.length > 0) {
+          watcherTags.pop();
+          renderTags();
+        }
+      });
+
+      tagInput.addEventListener('blur', () => {
+        if (tagInput.value.trim()) addTag(tagInput.value);
+      });
+
+      tagsContainer.addEventListener('click', () => tagInput.focus());
+      // ─────────────────────────────────────────────────────────────────────
+
       addBtn.addEventListener('click', () => {
         document.getElementById('modal-title').textContent = 'Add Application';
         document.getElementById('submit-btn').textContent = 'Create application';
@@ -477,6 +541,9 @@
         appForm.querySelector('select[name="status"]').value = 'Applied';
         appForm.querySelector('select[name="source"]').value = 'LinkedIn';
         appForm.querySelector('select[name="source_type"]').value = 'manual';
+        watcherTags = [];
+        renderTags();
+        watcherField.style.display = 'none';
         modal.classList.add('active');
       });
 
@@ -492,31 +559,34 @@
         btn.addEventListener('click', (e) => {
           e.preventDefault();
           const appId = btn.dataset.id;
-          const row = btn.closest('tr');
-          
+
           document.getElementById('modal-title').textContent = 'Edit Application';
           document.getElementById('submit-btn').textContent = 'Save changes';
           appForm.action = `/applications/${appId}/update`;
           appForm.method = 'POST';
-          
-          // Get current data via API
-          fetch(`/api/applications/${appId}`)
-            .then(res => res.json())
-            .then(app => {
-              appForm.querySelector('input[name="company"]').value = app.company;
-              appForm.querySelector('input[name="role"]').value = app.role;
-              appForm.querySelector('input[name="job_url"]').value = app.job_url || '';
-              appForm.querySelector('select[name="source"]').value = app.source || 'Other';
-              appForm.querySelector('select[name="status"]').value = app.status || 'Applied';
-              appForm.querySelector('input[name="applied_date"]').value = app.applied_date;
-              appForm.querySelector('input[name="follow_up_date"]').value = app.follow_up_date || '';
-              appForm.querySelector('input[name="salary_min"]').value = app.salary_min || '';
-              appForm.querySelector('input[name="salary_max"]').value = app.salary_max || '';
-              appForm.querySelector('input[name="salary_currency"]').value = app.salary_currency || '{{ default_currency }}';
-              appForm.querySelector('select[name="source_type"]').value = app.source_type || 'manual';
-              appForm.querySelector('textarea[name="notes"]').value = app.notes || '';
-            });
-          
+          watcherField.style.display = '';
+
+          // Fetch application data and watchers in parallel.
+          Promise.all([
+            fetch(`/api/applications/${appId}`).then(r => r.json()),
+            fetch(`/api/applications/${appId}/watchers`).then(r => r.json()),
+          ]).then(([app, patterns]) => {
+            appForm.querySelector('input[name="company"]').value = app.company;
+            appForm.querySelector('input[name="role"]').value = app.role;
+            appForm.querySelector('input[name="job_url"]').value = app.job_url || '';
+            appForm.querySelector('select[name="source"]').value = app.source || 'Other';
+            appForm.querySelector('select[name="status"]').value = app.status || 'Applied';
+            appForm.querySelector('input[name="applied_date"]').value = app.applied_date;
+            appForm.querySelector('input[name="follow_up_date"]').value = app.follow_up_date || '';
+            appForm.querySelector('input[name="salary_min"]').value = app.salary_min || '';
+            appForm.querySelector('input[name="salary_max"]').value = app.salary_max || '';
+            appForm.querySelector('input[name="salary_currency"]').value = app.salary_currency || '{{ default_currency }}';
+            appForm.querySelector('select[name="source_type"]').value = app.source_type || 'manual';
+            appForm.querySelector('textarea[name="notes"]').value = app.notes || '';
+            watcherTags = [...patterns];
+            renderTags();
+          });
+
           modal.classList.add('active');
         });
       });

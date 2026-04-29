@@ -23,11 +23,13 @@ from app.database import connect_db
 from app.email_parser import parse_job_email
 from app.models import (
     fetch_application_by_gmail_message_id,
+    fetch_application_by_id,
     find_fuzzy_application,
     insert_application,
     update_application,
 )
 from app.utils import clean_company, clean_string, utc_now
+from app.watchers import match_application_by_sender
 
 try:  # pragma: no cover - optional dependency guard
     from google.auth.transport.requests import Request
@@ -218,56 +220,99 @@ def sync_gmail_messages(app: Flask) -> dict[str, Any]:
         skipped = 0
         latest_error: str | None = None
 
+        provider = os.getenv("AI_PROVIDER", "gemini").strip()
+        gemini_model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
+
         for message_id in _list_message_ids(service, query):
             try:
                 message = _get_message(service, message_id)
                 text = _message_to_text(message)
-                parsed = parse_job_email(
-                    text,
-                    provider=os.getenv("AI_PROVIDER", "gemini").strip(),
-                    gemini_model=os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip(),
-                )
+                sender = _header_value(message, "from") or ""
+                notes = _gmail_notes(message, {})
 
-                if not parsed.get("is_job_related"):
-                    skipped += 1
-                    continue
+                watcher_app_id = match_application_by_sender(connection, sender)
 
-                company = clean_string(parsed.get("company"))
-                role = clean_string(parsed.get("role"))
-                if not company or not role:
-                    skipped += 1
-                    continue
+                if watcher_app_id:
+                    # ── Watcher branch ──────────────────────────────────────────
+                    # Deduplicate: skip if this exact message was already stored.
+                    if fetch_application_by_gmail_message_id(connection, message_id):
+                        skipped += 1
+                        continue
 
-                company = clean_company(company)
-                existing = fetch_application_by_gmail_message_id(connection, message_id)
-                if existing is None:
-                    existing = find_fuzzy_application(connection, company, role)
+                    target = fetch_application_by_id(connection, watcher_app_id)
+                    if target is None:
+                        skipped += 1
+                        continue
 
-                status = _choose_status(existing.get("status") if existing else None, parsed.get("status"))
-                applied_date = _message_date(message)
-                notes = _gmail_notes(message, parsed)
-                payload = {
-                    "company": company,
-                    "role": role,
-                    "job_url": existing.get("job_url") if existing else None,
-                    "source": existing.get("source") if existing else "Other",
-                    "status": status,
-                    "applied_date": existing.get("applied_date") if existing else applied_date,
-                    "salary_currency": existing.get("salary_currency") if existing else "PHP",
-                    "notes": _merge_notes(existing.get("notes") if existing else None, notes),
-                    "follow_up_date": existing.get("follow_up_date") if existing else None,
-                    "salary_min": existing.get("salary_min") if existing else None,
-                    "salary_max": existing.get("salary_max") if existing else None,
-                    "source_type": "gmail",
-                    "gmail_message_id": existing.get("gmail_message_id") if existing else message_id,
-                }
+                    parsed = parse_job_email(text, provider=provider, gemini_model=gemini_model)
+                    notes = _gmail_notes(message, parsed)
 
-                if existing is None:
-                    insert_application(connection, payload, now)
-                    created += 1
-                else:
-                    update_application(connection, existing["id"], payload, partial=True)
+                    # Require the parser to confirm the email is job-related.
+                    # This prevents noise: e.g. a LinkedIn order-confirmation email
+                    # matching a watcher won't update a job application.
+                    if not parsed.get("is_job_related"):
+                        skipped += 1
+                        continue
+
+                    status = _choose_status(target.get("status"), parsed.get("status"))
+                    payload = {
+                        "company": target["company"],
+                        "role": target["role"],
+                        "status": status,
+                        "notes": _merge_notes(target.get("notes"), notes),
+                        "source_type": "gmail",
+                        "gmail_message_id": target.get("gmail_message_id") or message_id,
+                    }
+                    update_application(connection, watcher_app_id, payload, partial=True)
                     updated += 1
+
+                else:
+                    # ── Fallback branch ─────────────────────────────────────────
+                    # No watcher: parse the email and match by company + role.
+                    parsed = parse_job_email(text, provider=provider, gemini_model=gemini_model)
+                    notes = _gmail_notes(message, parsed)
+
+                    if not parsed.get("is_job_related"):
+                        skipped += 1
+                        continue
+
+                    company = clean_string(parsed.get("company"))
+                    role = clean_string(parsed.get("role"))
+                    if not company or not role:
+                        skipped += 1
+                        continue
+
+                    company = clean_company(company)
+                    existing = fetch_application_by_gmail_message_id(connection, message_id)
+                    if existing is None:
+                        existing = find_fuzzy_application(connection, company, role)
+
+                    status = _choose_status(existing.get("status") if existing else None, parsed.get("status"))
+                    applied_date = _message_date(message)
+                    existing_msg_id = (existing.get("gmail_message_id") or message_id) if existing else message_id
+                    payload = {
+                        "company": company,
+                        "role": role,
+                        "job_url": existing.get("job_url") if existing else None,
+                        "source": existing.get("source") if existing else "Other",
+                        "status": status,
+                        "applied_date": existing.get("applied_date") if existing else applied_date,
+                        "salary_currency": existing.get("salary_currency") if existing else "PHP",
+                        "notes": _merge_notes(existing.get("notes") if existing else None, notes),
+                        "follow_up_date": existing.get("follow_up_date") if existing else None,
+                        "salary_min": existing.get("salary_min") if existing else None,
+                        "salary_max": existing.get("salary_max") if existing else None,
+                        "source_type": "gmail",
+                        "gmail_message_id": existing_msg_id,
+                    }
+
+                    if existing is None:
+                        insert_application(connection, payload, now)
+                        created += 1
+                    else:
+                        update_application(connection, existing["id"], payload, partial=True)
+                        updated += 1
+
             except Exception as exc:  # pragma: no cover - defensive sync guard
                 latest_error = str(exc)
                 skipped += 1
@@ -391,7 +436,7 @@ def _refresh_credentials_if_needed(connection, credentials) -> str | None:
     if getattr(credentials, "valid", False) and not getattr(credentials, "expired", False):
         return None
     if not getattr(credentials, "refresh_token", None):
-        return None
+        return "Gmail token has expired and cannot be refreshed — please reconnect Gmail."
 
     try:
         credentials.refresh(Request())

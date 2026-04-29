@@ -252,6 +252,113 @@ button:hover {
   gap: 10px;
 }
 
+.source-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+
+.source-badge.gmail {
+  background: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+}
+
+/* ── Watcher tag input ──────────────────────────────────────────────────── */
+
+.watcher-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.watcher-field-label {
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.watcher-field-hint {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.watcher-field-hint code {
+  font-family: var(--mono);
+  background: var(--panel-soft);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.tag-input-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--bg-2);
+  cursor: text;
+  min-height: 40px;
+  transition: border-color 0.15s;
+}
+
+.tag-input-container:focus-within {
+  border-color: var(--primary-dark);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px 2px 9px;
+  background: var(--primary);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.tag-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+.tag-remove:hover {
+  color: var(--danger);
+}
+
+.tag-input-field {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--text);
+  flex: 1;
+  min-width: 180px;
+}
+
+.tag-input-field::placeholder {
+  color: var(--muted);
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;

@@ -23,6 +23,11 @@ from app.gmail import (
     start_gmail_authorization,
     sync_gmail_messages,
 )
+from app.watchers import (
+    delete_watchers_for_application,
+    fetch_watchers_for_application,
+    set_watchers_for_application,
+)
 from app.models import (
     delete_application,
     fetch_application,
@@ -137,6 +142,9 @@ def register_routes(app: Flask) -> None:
         try:
             payload = form_payload(request.form)
             updated = update_application(connection, application_id, payload)
+            if updated is not None:
+                patterns = request.form.getlist("watcher_patterns")
+                set_watchers_for_application(connection, application_id, patterns)
             connection.commit()
             if updated is None:
                 flash("Application not found.", "error")
@@ -150,7 +158,13 @@ def register_routes(app: Flask) -> None:
 
     @app.post("/applications/<application_id>/delete")
     def delete_application_route(application_id: str) -> Any:
-        """Delete an application."""
+        """Delete an application and its watchers."""
+        connection = connect_db(app)
+        try:
+            delete_watchers_for_application(connection, application_id)
+            connection.commit()
+        finally:
+            connection.close()
         delete_application(app, application_id)
         flash("Application deleted.", "success")
         return redirect(url_for("dashboard"))
@@ -283,8 +297,24 @@ def register_routes(app: Flask) -> None:
 
     @app.delete("/api/applications/<application_id>")
     def api_delete_application(application_id: str) -> Any:
-        """Delete an application."""
+        """Delete an application and its watchers."""
+        connection = connect_db(app)
+        try:
+            delete_watchers_for_application(connection, application_id)
+            connection.commit()
+        finally:
+            connection.close()
         deleted = delete_application(app, application_id)
         if not deleted:
             return jsonify({"error": "not found"}), 404
         return jsonify({"success": True})
+
+    @app.get("/api/applications/<application_id>/watchers")
+    def api_get_watchers(application_id: str) -> Any:
+        """Return the sender patterns registered for an application."""
+        connection = connect_db(app)
+        try:
+            patterns = fetch_watchers_for_application(connection, application_id)
+        finally:
+            connection.close()
+        return jsonify(patterns)

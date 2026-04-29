@@ -91,6 +91,27 @@ def init_db(app: Flask) -> None:
                 WHERE gmail_message_id IS NOT NULL
             """
         )
+
+        # Remove old global-scope watcher table if it exists from a previous version.
+        connection.execute("DROP TABLE IF EXISTS company_watchers")
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS application_watchers (
+                id TEXT PRIMARY KEY,
+                application_id TEXT NOT NULL,
+                sender_pattern TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_app_watchers_application_id
+                ON application_watchers(application_id)
+            """
+        )
+
         connection.commit()
     finally:
         connection.close()
