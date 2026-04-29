@@ -143,7 +143,10 @@
                       </span>
                       <div class="status-dropdown" data-id="{{ application.id }}">
                         {% for option in status_options %}
-                        <button class="status-option" data-status="{{ option }}">{{ option }}</button>
+                        <button class="status-option {% if application.status == option %}active{% endif %}" data-status="{{ option }}">
+                          <span class="status-dot {{ status_styles[option] }}"></span>
+                          {{ option }}
+                        </button>
                         {% endfor %}
                       </div>
                     </td>

@@ -410,38 +410,38 @@ thead th {
 }
 
 .badge.blue {
-  background: rgba(217, 161, 197, 0.2);
-  color: #a85b8e;
+  background: #dbeafe;
+  color: #1e40af;
 }
 
 .badge.yellow {
-  background: rgba(229, 196, 216, 0.3);
-  color: #a87d9e;
+  background: #fef9c3;
+  color: #854d0e;
 }
 
 .badge.orange {
-  background: rgba(229, 196, 216, 0.3);
-  color: #a87d9e;
+  background: #ffedd5;
+  color: #9a3412;
 }
 
 .badge.purple {
-  background: rgba(217, 161, 197, 0.2);
-  color: #a85b8e;
+  background: #f3e8ff;
+  color: #6b21a8;
 }
 
 .badge.green {
-  background: rgba(226, 183, 205, 0.2);
-  color: #c07ba7;
+  background: #dcfce7;
+  color: #166534;
 }
 
 .badge.red {
-  background: rgba(217, 126, 126, 0.2);
-  color: #a85e5e;
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .badge.gray {
-  background: rgba(216, 204, 213, 0.3);
-  color: #8b7a89;
+  background: #f3f4f6;
+  color: #374151;
 }
 
 .overdue {
@@ -711,6 +711,17 @@ pre {
 }
 
 /* Status dropdown */
+.status-badge {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.status-badge:hover {
+  filter: brightness(0.9);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
 .status-cell {
   position: relative;
 }
@@ -735,6 +746,8 @@ pre {
 }
 
 .status-option {
+  display: flex;
+  align-items: center;
   padding: 10px 14px;
   cursor: pointer;
   border: none;
@@ -744,7 +757,30 @@ pre {
   font-family: var(--body);
   font-size: 0.9rem;
   transition: background 0.2s ease;
+  color: var(--text);
 }
+
+.status-option.active {
+  background: var(--panel-soft);
+  font-weight: 700;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.status-dot.blue { background: #3b82f6; }
+.status-dot.yellow { background: #eab308; }
+.status-dot.orange { background: #f97316; }
+.status-dot.purple { background: #a855f7; }
+.status-dot.green { background: #22c55e; }
+.status-dot.red { background: #ef4444; }
+.status-dot.gray { background: #9ca3af; }
 
 .status-option:hover {
   background: var(--panel-soft);
