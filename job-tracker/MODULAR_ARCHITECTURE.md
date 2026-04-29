@@ -141,3 +141,62 @@ To add a new feature (e.g., candidate tracking), you would:
 4. Create tests in `tests/test_candidates.py`
 
 This modular approach keeps the code organized and makes it easy to find and modify specific functionality.
+
+  1. The Google Gmail API Mechanism
+  Your app interacts with Gmail using two main components: OAuth 2.0 for permission and the RESTful Gmail API for data.
+
+   * OAuth 2.0 (Authorization):
+       * The Flow: When you click "Connect Gmail," the app uses google-auth-oauthlib to generate a unique authorization URL. You log in
+         via Google, and Google sends an Authorization Code back to your redirect URI (localhost:3000/gmail/callback).
+       * Tokens: Your app exchanges this code for an Access Token (short-lived, used for API calls) and a Refresh Token (long-lived,
+         used to get new access tokens without asking you to log in again).
+       * Storage: These credentials are encrypted as JSON and stored in your SQLite gmail_connections table.
+
+   * API Scopes: Your app requests https://www.googleapis.com/auth/gmail.readonly, which allows it to list and read emails but not send
+     or delete them, ensuring user safety.
+
+  ---
+
+  2. The Data Pipeline: From Email to Table
+  The pipeline is managed by app/gmail.py and runs in a background thread started in main.py.
+
+  Step A: Discovery (Polling)
+  The _gmail_poll_loop runs every 15 minutes (configurable). It checks the gmail_connections table to see if a sync is due.
+   1. Query Generation: It calculates the timestamp of the last sync and builds a Gmail search query: in:anywhere after:{timestamp}.
+   2. Listing: It calls users.messages().list() to get a list of Message IDs that match the query.
+
+  Step B: Extraction (Raw Data)
+  For each Message ID found:
+   1. Fetching: The app calls users.messages().get() to download the full email metadata (headers) and body (parts).
+   2. Decoding: Email bodies are typically Base64 encoded. The _message_to_text function extracts the Subject, From, Date, and the
+      plain-text or HTML body (which it strips of tags).
+
+  Step C: Intelligence (Parsing)
+  The raw text is passed to app/email_parser.py:
+   1. Validation: It first runs looks_job_related() to filter out newsletters or noise.
+   2. Extraction:
+       * If AI_PROVIDER=gemini, it sends the text to the Gemini API with a prompt to extract JSON containing company, role, status, and
+         date.
+       * If it fails or is set to local, it uses regex heuristics to find keywords like "Interview," "Applied," or "Unfortunately."
+
+  Step D: Reconciliation (Database Update)
+  This is where the app decides whether to add a new row or update an existing one:
+   1. Fuzzy Matching: It searches the applications table for the gmail_message_id. If not found, it does a fuzzy search by company and
+      role to see if you manually added the application earlier.
+   2. Status Logic (_choose_status): If the email is a status update (e.g., you were "Applied" but now the email says "Interview"), it
+      compares the "priority" of the statuses. It will only update the status if the new one is "further" in the hiring process (e.g.,
+      it won't move you back to "Applied" if you are already "Interviewing").
+   3. Note Merging: It appends the email subject and parsing notes to the existing notes field so you don't lose previous history.
+   4. Final Write: It executes an INSERT or UPDATE in the SQLite database, marking the sync as successful.
+
+  Summary Flowchart
+
+   1 [Gmail Inbox] 
+   2       ↓ (API: list & get)
+   3 [Raw Email JSON] 
+   4       ↓ (Base64 Decode + HTML Strip)
+   5 [Clean Text] 
+   6       ↓ (Gemini AI / Heuristics)
+   7 [Structured JSON (Company, Role, Status)]
+   8       ↓ (Fuzzy Match in Database)
+   9 [Final Application Row in SQLite]
