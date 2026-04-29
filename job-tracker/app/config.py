@@ -25,6 +25,12 @@ GEMINI_MODEL_OPTIONS = [
 
 DEFAULT_GEMINI_MODEL = GEMINI_MODEL_OPTIONS[0]
 
+# Gmail OAuth and polling settings.
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+GMAIL_REDIRECT_URI = "http://127.0.0.1:3000/gmail/callback"
+GMAIL_SYNC_INTERVAL_MINUTES = 15
+GMAIL_POLL_INTERVAL_SECONDS = 60
+
 # CSS styling classes for different statuses
 STATUS_STYLES = {
     "Applied": "blue",

@@ -1,8 +1,10 @@
 """Database models and CRUD operations for job applications."""
 
+import re
 import sqlite3
 import uuid
 from datetime import date
+from difflib import SequenceMatcher
 from typing import Any
 
 from flask import Flask
@@ -39,6 +41,7 @@ def insert_application(
         "notes": payload.get("notes"),
         "follow_up_date": payload.get("follow_up_date"),
         "source_type": payload.get("source_type", "manual"),
+        "gmail_message_id": payload.get("gmail_message_id"),
         "created_at": timestamp,
         "updated_at": timestamp,
     }
@@ -48,8 +51,8 @@ def insert_application(
         INSERT INTO applications (
             id, company, role, job_url, source, status, applied_date,
             salary_min, salary_max, salary_currency, notes,
-            follow_up_date, source_type, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            follow_up_date, source_type, gmail_message_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             application["id"],
@@ -65,6 +68,7 @@ def insert_application(
             application["notes"],
             application["follow_up_date"],
             application["source_type"],
+            application["gmail_message_id"],
             application["created_at"],
             application["updated_at"],
         ),
@@ -98,6 +102,7 @@ def update_application(
 
     merged = dict(existing)
     merged.update(payload)
+    merged["gmail_message_id"] = payload.get("gmail_message_id", merged.get("gmail_message_id"))
     if not partial:
         if not merged.get("company") or not merged.get("role"):
             raise ValueError("Company and role are required.")
@@ -111,7 +116,7 @@ def update_application(
         UPDATE applications
         SET company = ?, role = ?, job_url = ?, source = ?, status = ?, applied_date = ?,
             salary_min = ?, salary_max = ?, salary_currency = ?, notes = ?, follow_up_date = ?,
-            source_type = ?, updated_at = ?
+            source_type = ?, gmail_message_id = ?, updated_at = ?
         WHERE id = ?
         """,
         (
@@ -127,11 +132,57 @@ def update_application(
             merged.get("notes"),
             merged.get("follow_up_date"),
             merged.get("source_type", "manual"),
+            merged.get("gmail_message_id"),
             merged["updated_at"],
             application_id,
         ),
     )
     return fetch_application_by_id(connection, application_id)
+
+
+def fetch_application_by_gmail_message_id(
+    connection: sqlite3.Connection, gmail_message_id: str | None
+) -> dict[str, Any] | None:
+    """Fetch a single application by Gmail message ID."""
+    if not gmail_message_id:
+        return None
+    row = connection.execute(
+        "SELECT * FROM applications WHERE gmail_message_id = ?",
+        (gmail_message_id,),
+    ).fetchone()
+    return serialize_application(row) if row else None
+
+
+def find_fuzzy_application(
+    connection: sqlite3.Connection,
+    company: str,
+    role: str,
+    threshold: float = 0.85,
+) -> dict[str, Any] | None:
+    """Find an application by fuzzy company and role matching."""
+    rows = connection.execute("SELECT * FROM applications").fetchall()
+    best_match: sqlite3.Row | None = None
+    best_score = 0.0
+
+    normalized_company = _normalize_match_value(company)
+    normalized_role = _normalize_match_value(role)
+
+    for row in rows:
+        company_score = SequenceMatcher(
+            None, normalized_company, _normalize_match_value(row["company"])
+        ).ratio()
+        role_score = SequenceMatcher(None, normalized_role, _normalize_match_value(row["role"])).ratio()
+        if company_score < 0.78 or role_score < 0.72:
+            continue
+
+        score = (company_score * 0.6) + (role_score * 0.4)
+        if score > best_score:
+            best_score = score
+            best_match = row
+
+    if best_match is None or best_score < threshold:
+        return None
+    return serialize_application(best_match)
 
 
 def delete_application(app: Flask, application_id: str) -> bool:
@@ -259,3 +310,10 @@ def serialize_application(row: sqlite3.Row | None) -> dict[str, Any]:
     data["is_overdue"] = bool(follow_up and follow_up < date.today())
     data["status_class"] = STATUS_STYLES.get(data.get("status", "Applied"), "gray")
     return data
+
+
+def _normalize_match_value(value: str | None) -> str:
+    """Normalize text for fuzzy matching."""
+    if not value:
+        return ""
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()

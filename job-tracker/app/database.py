@@ -35,6 +35,22 @@ def init_db(app: Flask) -> None:
     """
     connection = connect_db(app)
     try:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gmail_connections (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                credentials_json TEXT NOT NULL,
+                connected_email TEXT,
+                connected_at TEXT NOT NULL,
+                last_sync_at TEXT,
+                last_sync_error TEXT,
+                sync_interval_minutes INTEGER NOT NULL DEFAULT 15,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS applications (
@@ -51,6 +67,7 @@ def init_db(app: Flask) -> None:
                 notes TEXT,
                 follow_up_date TEXT,
                 source_type TEXT,
+                gmail_message_id TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -58,6 +75,20 @@ def init_db(app: Flask) -> None:
             CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
             CREATE INDEX IF NOT EXISTS idx_applications_company ON applications(company);
             CREATE INDEX IF NOT EXISTS idx_applications_applied_date ON applications(applied_date);
+            """
+        )
+
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(applications)").fetchall()
+        }
+        if "gmail_message_id" not in columns:
+            connection.execute("ALTER TABLE applications ADD COLUMN gmail_message_id TEXT")
+
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_gmail_message_id
+                ON applications(gmail_message_id)
+                WHERE gmail_message_id IS NOT NULL
             """
         )
         connection.commit()

@@ -4,7 +4,7 @@ import os
 from datetime import date
 from typing import Any
 
-from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 
 from app.config import (
     DEFAULT_GEMINI_MODEL,
@@ -16,6 +16,13 @@ from app.config import (
 )
 from app.database import connect_db
 from app.email_parser import parse_job_email
+from app.gmail import (
+    disconnect_gmail,
+    finish_gmail_authorization,
+    get_gmail_status,
+    start_gmail_authorization,
+    sync_gmail_messages,
+)
 from app.models import (
     delete_application,
     fetch_application,
@@ -45,6 +52,55 @@ def build_stats(applications: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
+def _render_dashboard(
+    app: Flask,
+    *,
+    active_tab: str = "dashboard",
+    parse_result: dict[str, Any] | None = None,
+    email_text: str = "",
+    selected_provider: str | None = None,
+    selected_gemini_model: str | None = None,
+) -> str:
+    """Render the dashboard with shared data."""
+    filters = {
+        "status": request.args.get("status", "").strip(),
+        "source": request.args.get("source", "").strip(),
+        "search": request.args.get("search", "").strip(),
+    }
+    sort_by = request.args.get("sort_by", "applied_date").strip()
+    order = request.args.get("order", "desc").strip()
+    edit_id = request.args.get("edit", "").strip() or None
+
+    applications = fetch_applications(app, filters, sort_by=sort_by, order=order)
+    editing_application = fetch_application(app, edit_id) if edit_id else None
+    stats = build_stats(applications)
+    gmail_status = get_gmail_status(app)
+
+    return render_template(
+        "index.html",
+        applications=applications,
+        stats=stats,
+        filters=filters,
+        sort_by=sort_by,
+        order=order,
+        status_options=STATUS_OPTIONS,
+        source_options=SOURCE_OPTIONS,
+        source_type_options=SOURCE_TYPE_OPTIONS,
+        status_styles=STATUS_STYLES,
+        editing_application=editing_application,
+        parse_result=parse_result,
+        email_text=email_text,
+        selected_provider=selected_provider or os.getenv("AI_PROVIDER", "local").strip(),
+        selected_gemini_model=selected_gemini_model
+        or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip(),
+        gemini_model_options=GEMINI_MODEL_OPTIONS,
+        active_tab=active_tab,
+        today=date.today().isoformat(),
+        default_currency="PHP",
+        gmail_status=gmail_status,
+    )
+
+
 def register_routes(app: Flask) -> None:
     """Register all Flask routes.
     
@@ -57,39 +113,7 @@ def register_routes(app: Flask) -> None:
     @app.get("/")
     def dashboard() -> str:
         """Display the main dashboard with applications and filters."""
-        filters = {
-            "status": request.args.get("status", "").strip(),
-            "source": request.args.get("source", "").strip(),
-            "search": request.args.get("search", "").strip(),
-        }
-        sort_by = request.args.get("sort_by", "applied_date").strip()
-        order = request.args.get("order", "desc").strip()
-        
-        edit_id = request.args.get("edit", "").strip() or None
-        applications = fetch_applications(app, filters, sort_by=sort_by, order=order)
-        editing_application = fetch_application(app, edit_id) if edit_id else None
-        stats = build_stats(applications)
-        return render_template(
-            "index.html",
-            applications=applications,
-            stats=stats,
-            filters=filters,
-            sort_by=sort_by,
-            order=order,
-            status_options=STATUS_OPTIONS,
-            source_options=SOURCE_OPTIONS,
-            source_type_options=SOURCE_TYPE_OPTIONS,
-            status_styles=STATUS_STYLES,
-            editing_application=editing_application,
-            parse_result=None,
-            email_text="",
-            selected_provider=os.getenv("AI_PROVIDER", "local").strip(),
-            selected_gemini_model=os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip(),
-            gemini_model_options=GEMINI_MODEL_OPTIONS,
-            active_tab="dashboard",
-            today=date.today().isoformat(),
-            default_currency="PHP",
-        )
+        return _render_dashboard(app)
 
     @app.post("/applications")
     def create_application_route() -> Any:
@@ -141,37 +165,66 @@ def register_routes(app: Flask) -> None:
             os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
         ).strip()
         parse_result = parse_job_email(email_text, provider=provider, gemini_model=gemini_model)
-        active_tab = "parser"
-        filters = {
-            "status": request.args.get("status", "").strip(),
-            "source": request.args.get("source", "").strip(),
-            "search": request.args.get("search", "").strip(),
-        }
-        sort_by = request.args.get("sort_by", "applied_date").strip()
-        order = request.args.get("order", "desc").strip()
-        applications = fetch_applications(app, filters, sort_by=sort_by, order=order)
-        stats = build_stats(applications)
-        return render_template(
-            "index.html",
-            applications=applications,
-            stats=stats,
-            filters=filters,
-            sort_by=sort_by,
-            order=order,
-            status_options=STATUS_OPTIONS,
-            source_options=SOURCE_OPTIONS,
-            source_type_options=SOURCE_TYPE_OPTIONS,
-            status_styles=STATUS_STYLES,
-            editing_application=None,
+        return _render_dashboard(
+            app,
+            active_tab="parser",
             parse_result=parse_result,
             email_text=email_text,
             selected_provider=provider,
             selected_gemini_model=parse_result.get("gemini_model", gemini_model),
-            gemini_model_options=GEMINI_MODEL_OPTIONS,
-            active_tab=active_tab,
-            today=date.today().isoformat(),
-            default_currency="PHP",
         )
+
+    @app.get("/gmail/connect")
+    def gmail_connect_route() -> Any:
+        """Start the Gmail OAuth flow."""
+        try:
+            authorization_url, state, code_verifier = start_gmail_authorization()
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("dashboard"))
+
+        session["gmail_oauth_state"] = state
+        if code_verifier:
+            session["gmail_oauth_code_verifier"] = code_verifier
+        return redirect(authorization_url)
+
+    @app.get("/gmail/callback")
+    def gmail_callback_route() -> Any:
+        """Complete the Gmail OAuth flow."""
+        state = session.pop("gmail_oauth_state", None)
+        code_verifier = session.pop("gmail_oauth_code_verifier", None)
+        result = finish_gmail_authorization(app, request.url, state, code_verifier)
+        if result["ok"]:
+            email_address = result.get("email") or "your Gmail account"
+            flash(f"Gmail connected for {email_address}.", "success")
+        else:
+            flash(result["error"], "error")
+        return redirect(url_for("dashboard"))
+
+    @app.post("/gmail/disconnect")
+    def gmail_disconnect_route() -> Any:
+        """Disconnect Gmail and clear stored tokens."""
+        disconnect_gmail(app)
+        flash("Gmail disconnected.", "success")
+        return redirect(url_for("dashboard"))
+
+    @app.get("/gmail/status")
+    def gmail_status_route() -> Any:
+        """Return Gmail connection status as JSON."""
+        return jsonify(get_gmail_status(app))
+
+    @app.post("/gmail/sync")
+    def gmail_sync_route() -> Any:
+        """Synchronize Gmail messages on demand."""
+        result = sync_gmail_messages(app)
+        if result["ok"]:
+            flash(
+                f"Gmail sync complete: {result['created']} created, {result['updated']} updated, {result['skipped']} skipped.",
+                "success",
+            )
+        else:
+            flash(result["error"], "error")
+        return redirect(url_for("dashboard"))
 
     # ==================== API Routes ====================
 

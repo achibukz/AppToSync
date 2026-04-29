@@ -46,6 +46,39 @@
         <article class="stat card"><span>Needs follow-up</span><strong>{{ stats.overdue }}</strong></article>
       </section>
 
+      <section class="card gmail-card">
+        <div class="gmail-card-copy">
+          <p class="eyebrow">Gmail sync</p>
+          <h2>Connect Gmail to auto-capture job emails</h2>
+          <p class="lede">Read-only OAuth keeps your mailbox local to this app. New job emails are parsed into applications on a schedule.</p>
+        </div>
+        <div class="gmail-card-status">
+          <div>
+            <span class="status-pill {% if gmail_status.connected %}connected{% else %}disconnected{% endif %}">
+              {% if gmail_status.connected %}Connected{% else %}Not connected{% endif %}
+            </span>
+            <p class="gmail-meta">{% if gmail_status.connected_email %}{{ gmail_status.connected_email }}{% else %}Gmail OAuth is not set up yet.{% endif %}</p>
+            <p class="gmail-meta">Last sync: {{ gmail_status.last_sync_at or 'Never' }}</p>
+            <p class="gmail-meta">Sync interval: every {{ gmail_status.sync_interval_minutes }} minutes</p>
+            {% if gmail_status.last_sync_error %}
+            <p class="danger">{{ gmail_status.last_sync_error }}</p>
+            {% endif %}
+          </div>
+          <div class="gmail-card-actions">
+            {% if gmail_status.connected %}
+            <form method="post" action="{{ url_for('gmail_sync_route') }}">
+              <button class="button" type="submit">Sync now</button>
+            </form>
+            <form method="post" action="{{ url_for('gmail_disconnect_route') }}">
+              <button class="button secondary" type="submit">Disconnect</button>
+            </form>
+            {% else %}
+            <a class="button" href="{{ url_for('gmail_connect_route') }}">Connect Gmail</a>
+            {% endif %}
+          </div>
+        </div>
+      </section>
+
       <!-- Tabs -->
       <div class="tabs-container">
         <div class="tabs-header">
