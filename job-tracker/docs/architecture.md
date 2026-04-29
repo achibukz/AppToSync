@@ -200,3 +200,52 @@ This modular approach keeps the code organized and makes it easy to find and mod
    7 [Structured JSON (Company, Role, Status)]
    8       ↓ (Fuzzy Match in Database)
    9 [Final Application Row in SQLite]
+
+   Email Tab
+
+     ---                                                                                                                             
+  What changed                                                                          
+                                                                                                                                  
+  The Gmail sync pipeline is now fetch → store → parse → review instead of fetch → parse → save. Every email is stored locally
+  first, then parsed via Gemini-only (no local-regex fallback), then either auto-routed to an existing app or queued for your     
+  accept/reject.                         
+                                                                                                                                  
+  Files changed                                                                         
+                                                                                                                                  
+  ┌────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────────────────┐  
+  │              File              │                                           What                                            │  
+  ├────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤  
+  │ app/database.py                │ New parsed_emails table (Gmail message metadata + parser output + review state)           │  
+  ├────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤  
+  │ app/parsed_emails.py           │ New CRUD module: upsert, fetch by status, mark accepted/dismissed/retry                   │  
+  ├────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤  
+  │ app/email_parser.py            │ Added parse_job_email_strict — Gemini-only, returns (result, error)                       │  
+  ├────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤  
+  │                                │ Two-step sync: store every fetched message, then parse paused rows. Watcher OR fuzzy      │
+  │ app/gmail.py                   │ match → silent auto-update; otherwise → pending_review. Gemini failure → stays paused,    │  
+  │                                │ retried next sync. New retry_parse_email() for one-off manual retry                       │
+  ├────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤  
+  │ app/routes.py                  │ New /emails/<id>/accept, /emails/<id>/reject, /emails/<id>/retry + /api/emails. Removed   │
+  │                                │ /parse-email. Dashboard now passes pending_emails and paused_emails to the template       │  
+  ├────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+  │ app/validators.py              │ normalize_payload now preserves gmail_message_id so accepted-email apps link back to      │  
+  │                                │ their source                                                                              │  
+  ├────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+  │                                │ Replaced "Email Parser" tab with Emails tab (badge with pending count). Pending review    │  
+  │ templates/index.html           │ cards show parsed company/role/status/confidence with Accept / Edit & Accept / Reject     │
+  │                                │ buttons. Paused section with Retry. Edit & Accept opens the existing modal pre-filled     │  
+  ├────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+  │ static/styles.css              │ Email card styles, tag pills, paused state, danger button                                 │  
+  ├────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+  │ tests/test_parsed_emails.py    │ New: 27 tests across CRUD, sync pipeline (auto-update via watcher/fuzzy, pending review,  │  
+  │                                │ not-job, paused, retry-on-next-sync, dedup), and accept/reject/retry routes               │
+  ├────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤  
+  │ tests/test_company_watchers.py │ Updated for new sync result shape (fetched/parsed/pending_review/paused/updated/not_job); │
+  │                                │  fallback branch now expects pending_review instead of auto-create                        │  
+  ├────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+  │ tests/test_gmail_sync.py       │ Updated to mock parse_job_email_strict and assert the new queue behavior                  │  
+  └────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────────────────┘  
+                                                                       
+  Behavior to verify in the UI: connect Gmail → run sync → check the Emails tab. New unmatched job emails appear in Pending       
+  review. If Gemini quota is exhausted, emails appear in Paused with a Retry button.    
+                                                                                       
