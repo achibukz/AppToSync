@@ -366,6 +366,7 @@
       const appForm = document.getElementById('app-form');
       const statusOptions = {{ status_options | tojson }};
       const sourceOptions = {{ source_options | tojson }};
+      const statusStyles = {{ status_styles | tojson }};
 
       addBtn.addEventListener('click', () => {
         document.getElementById('modal-title').textContent = 'Add Application';
@@ -443,13 +444,43 @@
           e.stopPropagation();
           const appId = badge.dataset.id;
           const dropdown = document.querySelector(`.status-dropdown[data-id="${appId}"]`);
+          const wasActive = dropdown.classList.contains('active');
           
           // Close all other dropdowns
-          document.querySelectorAll('.status-dropdown.active').forEach(d => {
-            if (d !== dropdown) d.classList.remove('active');
+          document.querySelectorAll('.status-dropdown').forEach(d => {
+            d.classList.remove('active');
           });
-          
-          dropdown.classList.toggle('active');
+
+          if (!wasActive) {
+            // Measure available space
+            const badgeRect = badge.getBoundingClientRect();
+            const spaceBelow = window.innerHeight - badgeRect.bottom;
+            const spaceAbove = badgeRect.top;
+            
+            // Show dropdown temporarily to measure its height
+            dropdown.style.visibility = 'hidden';
+            dropdown.style.display = 'block';
+            const dropdownHeight = dropdown.offsetHeight;
+            dropdown.style.display = ''; // Clear inline display
+            dropdown.style.visibility = ''; // Clear inline visibility
+
+            // Determine if it should open up or down
+            // Open up if not enough space below AND more space above than below
+            if (spaceBelow < dropdownHeight + 10 && spaceAbove > spaceBelow) {
+              dropdown.classList.add('open-up');
+            } else {
+              dropdown.classList.remove('open-up');
+            }
+
+            dropdown.classList.add('active');
+          }
+        });
+      });
+
+      // Close dropdowns when clicking outside
+      document.addEventListener('click', () => {
+        document.querySelectorAll('.status-dropdown').forEach(d => {
+          d.classList.remove('active');
         });
       });
 
@@ -482,8 +513,8 @@
             // Close dropdown
             document.querySelector(`.status-dropdown[data-id="${appId}"]`).classList.remove('active');
             
-            // Reload page to update colors
-            location.reload();
+            // Redirect to home to update colors and stats without re-parsing
+            window.location.href = '/';
           });
         });
       });
