@@ -285,7 +285,6 @@ def register_routes(app: Flask) -> None:
             applied_date = (
                 request.form.get("applied_date")
                 or record.get("parsed_applied_date")
-                or (record.get("received_at") or "").split("T")[0]
                 or date.today().isoformat()
             )
             payload = {

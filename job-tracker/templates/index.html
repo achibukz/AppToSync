@@ -382,7 +382,7 @@
                           data-company="{{ email.parsed_company or '' }}"
                           data-role="{{ email.parsed_role or '' }}"
                           data-status="{{ email.parsed_status or 'Applied' }}"
-                          data-applied-date="{{ email.parsed_applied_date or (email.received_at[:10] if email.received_at else today) }}"
+                          data-applied-date="{{ email.parsed_applied_date or '' }}"
                           data-source="{{ email.parsed_source or '' }}"
                           type="button">Edit & Accept</button>
                   <form method="post" action="{{ url_for('reject_email_route', message_id=email.gmail_message_id) }}" style="display:inline;">
@@ -527,6 +527,9 @@
 
     <script>
       // Tab switching
+      const _d = new Date();
+      const localToday = _d.getFullYear() + '-' + String(_d.getMonth()+1).padStart(2,'0') + '-' + String(_d.getDate()).padStart(2,'0');
+
       const tabBtns = document.querySelectorAll('.tab-btn');
       const tabContents = document.querySelectorAll('.tab-content');
 
@@ -654,7 +657,7 @@
         appForm.action = '{{ url_for("create_application_route") }}';
         appForm.method = 'POST';
         appForm.reset();
-        appForm.querySelector('input[name="applied_date"]').value = '{{ today }}';
+        appForm.querySelector('input[name="applied_date"]').value = localToday;
         appForm.querySelector('input[name="salary_currency"]').value = '{{ default_currency }}';
         appForm.querySelector('select[name="status"]').value = 'Applied';
         setSourceValue('LinkedIn');
@@ -738,7 +741,7 @@
 
           appForm.querySelector('input[name="company"]').value = btn.dataset.company || '';
           appForm.querySelector('input[name="role"]').value = btn.dataset.role || '';
-          appForm.querySelector('input[name="applied_date"]').value = btn.dataset.appliedDate || '{{ today }}';
+          appForm.querySelector('input[name="applied_date"]').value = btn.dataset.appliedDate || localToday;
           appForm.querySelector('input[name="salary_currency"]').value = '{{ default_currency }}';
           appForm.querySelector('select[name="status"]').value = btn.dataset.status || 'Applied';
           setSourceValue(btn.dataset.source || 'Other');
