@@ -42,7 +42,14 @@ SEED_DEMO_DATA=true
 AI_PROVIDER=local
 PROVIDER_API_KEY=
 GEMINI_MODEL=gemini-2.5-flash
+GMAIL_CLIENT_ID=
+GMAIL_CLIENT_SECRET=
+GMAIL_REDIRECT_URI=http://localhost:3000/gmail/callback
+GMAIL_SYNC_INTERVAL_MINUTES=15
+GMAIL_AUTO_POLL=true
 ```
+
+For Gmail sync, create a local OAuth 2.0 client in Google Cloud, add `http://localhost:3000/gmail/callback` as an authorized redirect URI, then set the Gmail env vars before starting the app.
 
 ## Prototype notes
 

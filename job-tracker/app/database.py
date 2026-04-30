@@ -35,6 +35,22 @@ def init_db(app: Flask) -> None:
     """
     connection = connect_db(app)
     try:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gmail_connections (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                credentials_json TEXT NOT NULL,
+                connected_email TEXT,
+                connected_at TEXT NOT NULL,
+                last_sync_at TEXT,
+                last_sync_error TEXT,
+                sync_interval_minutes INTEGER NOT NULL DEFAULT 15,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS applications (
@@ -51,6 +67,7 @@ def init_db(app: Flask) -> None:
                 notes TEXT,
                 follow_up_date TEXT,
                 source_type TEXT,
+                gmail_message_id TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -60,6 +77,69 @@ def init_db(app: Flask) -> None:
             CREATE INDEX IF NOT EXISTS idx_applications_applied_date ON applications(applied_date);
             """
         )
+
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(applications)").fetchall()
+        }
+        if "gmail_message_id" not in columns:
+            connection.execute("ALTER TABLE applications ADD COLUMN gmail_message_id TEXT")
+
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_gmail_message_id
+                ON applications(gmail_message_id)
+                WHERE gmail_message_id IS NOT NULL
+            """
+        )
+
+        # Remove old global-scope watcher table if it exists from a previous version.
+        connection.execute("DROP TABLE IF EXISTS company_watchers")
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS application_watchers (
+                id TEXT PRIMARY KEY,
+                application_id TEXT NOT NULL,
+                sender_pattern TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_app_watchers_application_id
+                ON application_watchers(application_id)
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS parsed_emails (
+                gmail_message_id TEXT PRIMARY KEY,
+                received_at TEXT,
+                from_address TEXT,
+                subject TEXT,
+                body_text TEXT,
+                parse_status TEXT NOT NULL,
+                parse_error TEXT,
+                parse_attempts INTEGER NOT NULL DEFAULT 0,
+                last_parsed_at TEXT,
+                is_job_related INTEGER,
+                parsed_company TEXT,
+                parsed_role TEXT,
+                parsed_status TEXT,
+                parsed_confidence REAL,
+                parsed_reasoning TEXT,
+                application_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_parsed_emails_status ON parsed_emails(parse_status)"
+        )
+
         connection.commit()
     finally:
         connection.close()
