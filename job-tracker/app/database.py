@@ -44,19 +44,12 @@ def init_db(app: Flask) -> None:
                 connected_at TEXT NOT NULL,
                 last_sync_at TEXT,
                 last_sync_error TEXT,
-                last_sync_summary TEXT,
                 sync_interval_minutes INTEGER NOT NULL DEFAULT 15,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
             """
         )
-
-        columns = {
-            row["name"] for row in connection.execute("PRAGMA table_info(gmail_connections)").fetchall()
-        }
-        if "last_sync_summary" not in columns:
-            connection.execute("ALTER TABLE gmail_connections ADD COLUMN last_sync_summary TEXT")
 
         connection.executescript(
             """
