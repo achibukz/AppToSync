@@ -131,6 +131,7 @@ def register_routes(app: Flask) -> None:
         return render_template("login.html")
 
     @app.post("/login")
+    @limiter.limit("10 per minute")
     def login_post() -> Any:
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
@@ -155,6 +156,7 @@ def register_routes(app: Flask) -> None:
         return render_template("register.html")
 
     @app.post("/register")
+    @limiter.limit("5 per minute")
     def register_post() -> Any:
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")

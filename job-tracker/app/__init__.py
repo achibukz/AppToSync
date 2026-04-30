@@ -56,10 +56,19 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         template_folder=str(BASE_DIR / "templates"),
         static_folder=str(BASE_DIR / "static"),
     )
+    secret_key = os.getenv("SECRET_KEY")
+    if not secret_key:
+        if os.getenv("FLASK_ENV") == "production":
+            raise RuntimeError("SECRET_KEY must be set in production")
+        secret_key = "dev"
+
     app.config.from_mapping(
-        SECRET_KEY=os.getenv("SECRET_KEY", "dev"),
+        SECRET_KEY=secret_key,
         DATABASE_PATH=Path(os.getenv("DATABASE_PATH", str(DEFAULT_DB_PATH))),
         SEED_DEMO_DATA=os.getenv("SEED_DEMO_DATA", "true").lower() in {"1", "true", "yes"},
+        SESSION_COOKIE_SECURE=os.getenv("FLASK_ENV") == "production",
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
         TESTING=False,
     )
     if test_config:

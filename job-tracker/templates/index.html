@@ -34,13 +34,6 @@
   <body>
     <div class="backdrop-grid" aria-hidden="true"></div>
 
-    <header class="topbar">
-      <span class="topbar-email">{{ current_user.email }}</span>
-      <form method="post" action="{{ url_for('logout_route') }}">
-        <button class="button secondary topbar-logout" type="submit">Sign out</button>
-      </form>
-    </header>
-
     <main class="shell shell-split">
       <aside class="sidebar">
         <section class="hero card">
@@ -518,6 +511,13 @@
         </div>
       </div>
     </main>
+
+    <footer class="topbar">
+      <span class="topbar-email">{{ current_user.email }}</span>
+      <form method="post" action="{{ url_for('logout_route') }}">
+        <button class="button secondary topbar-logout" type="submit">Sign out</button>
+      </form>
+    </footer>
 
     <script>
       // Tab switching
