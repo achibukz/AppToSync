@@ -5,6 +5,7 @@ from typing import Any
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 
+from app.extensions import limiter
 from app.config import (
     DEFAULT_PARSER_CHOICE,
     PARSER_MODEL_CHOICES,
@@ -304,6 +305,7 @@ def register_routes(app: Flask) -> None:
         return jsonify(get_gmail_status(app))
 
     @app.post("/gmail/sync")
+    @limiter.limit("6 per minute")
     def gmail_sync_route() -> Any:
         """Synchronize Gmail messages on demand."""
         choice = request.form.get("parser_choice", "").strip()

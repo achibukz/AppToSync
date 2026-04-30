@@ -8,6 +8,7 @@ from flask import Flask
 
 from app.config import DEMO_APPLICATIONS
 from app.database import connect_db, init_db
+from app.extensions import limiter
 from app.models import fetch_applications, insert_application
 from app.routes import register_routes
 from app.utils import utc_now
@@ -68,6 +69,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     if not app.config.get("TESTING", False) and app.config.get("SEED_DEMO_DATA", False):
         seed_demo_data(app)
 
+    limiter.init_app(app)
     register_routes(app)
     return app
 

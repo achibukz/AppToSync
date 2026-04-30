@@ -13,15 +13,16 @@ def get_db_path(app: Flask) -> Path:
 
 def connect_db(app: Flask) -> sqlite3.Connection:
     """Create and return a database connection.
-    
+
     Args:
         app: Flask application instance
-        
+
     Returns:
         sqlite3 connection with row_factory set to sqlite3.Row
     """
-    connection = sqlite3.connect(get_db_path(app))
+    connection = sqlite3.connect(get_db_path(app), timeout=10)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA journal_mode=WAL")
     return connection
 
 
