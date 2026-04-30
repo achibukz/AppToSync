@@ -76,7 +76,7 @@ def _render_dashboard(app: Flask, user_id: int, *, active_tab: str = "dashboard"
         "search": request.args.get("search", "").strip(),
     }
     sort_by = request.args.get("sort_by", "applied_date").strip()
-    order = request.args.get("order", "desc").strip()
+    order = request.args.get("order", "asc").strip()
     edit_id = request.args.get("edit", "").strip() or None
 
     applications = fetch_applications(app, filters, sort_by=sort_by, order=order, user_id=user_id)
@@ -284,6 +284,7 @@ def register_routes(app: Flask) -> None:
 
             applied_date = (
                 request.form.get("applied_date")
+                or record.get("parsed_applied_date")
                 or (record.get("received_at") or "").split("T")[0]
                 or date.today().isoformat()
             )
@@ -291,7 +292,7 @@ def register_routes(app: Flask) -> None:
                 "company": company,
                 "role": role,
                 "job_url": request.form.get("job_url") or None,
-                "source": request.form.get("source") or "Other",
+                "source": request.form.get("source") or record.get("parsed_source") or "Other",
                 "status": request.form.get("status") or record.get("parsed_status") or "Applied",
                 "applied_date": applied_date,
                 "salary_min": request.form.get("salary_min") or None,
@@ -329,7 +330,22 @@ def register_routes(app: Flask) -> None:
     @login_required
     def retry_email_route(message_id: str) -> Any:
         user_id: int = session["user_id"]
-        result = retry_parse_email(app, message_id, user_id=user_id)
+        choice = request.form.get("parser_choice", DEFAULT_PARSER_CHOICE)
+        provider, gemini_model, groq_model = None, None, None
+        for (v, _label, p, m) in PARSER_MODEL_CHOICES:
+            if v == choice:
+                provider = p
+                if p == "gemini":
+                    gemini_model = m
+                else:
+                    groq_model = m
+                break
+        result = retry_parse_email(
+            app, message_id, user_id=user_id,
+            parser_provider=provider,
+            gemini_model=gemini_model,
+            groq_model=groq_model,
+        )
         if not result["ok"]:
             flash(result.get("error") or "Retry failed.", "error")
         elif result["parse_status"] == "paused":

@@ -172,6 +172,10 @@ def _migrate_add_columns(connection: sqlite3.Connection) -> None:
     email_cols = {r["name"] for r in connection.execute("PRAGMA table_info(parsed_emails)").fetchall()}
     if "user_id" not in email_cols:
         connection.execute("ALTER TABLE parsed_emails ADD COLUMN user_id INTEGER REFERENCES users(id)")
+    if "parsed_source" not in email_cols:
+        connection.execute("ALTER TABLE parsed_emails ADD COLUMN parsed_source TEXT")
+    if "parsed_applied_date" not in email_cols:
+        connection.execute("ALTER TABLE parsed_emails ADD COLUMN parsed_applied_date TEXT")
 
 
 def _seed_owner_and_migrate(connection: sqlite3.Connection) -> None:

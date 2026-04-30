@@ -369,6 +369,8 @@ def _parse_pending_emails(
         parsed_status_value = result.get("status")
         confidence = result.get("confidence")
         reasoning = result.get("reasoning_summary")
+        parsed_source = result.get("source") or None
+        parsed_applied_date = result.get("applied_date") if parsed_status_value == "Applied" else None
 
         if not is_job:
             update_parse_success(
@@ -381,6 +383,8 @@ def _parse_pending_emails(
                 parsed_status=parsed_status_value,
                 parsed_confidence=confidence,
                 parsed_reasoning=reasoning,
+                parsed_source=parsed_source,
+                parsed_applied_date=parsed_applied_date,
             )
             not_job += 1
             continue
@@ -404,6 +408,10 @@ def _parse_pending_emails(
                 "source_type": "gmail",
                 "gmail_message_id": target.get("gmail_message_id") or message_id,
             }
+            if parsed_status_value == "Applied" and parsed_applied_date:
+                payload["applied_date"] = parsed_applied_date
+            if parsed_source and (not target.get("source") or target.get("source") == "Other"):
+                payload["source"] = parsed_source
             update_application(connection, target["id"], payload, partial=True)
             update_parse_success(
                 connection,
@@ -415,6 +423,8 @@ def _parse_pending_emails(
                 parsed_status=parsed_status_value,
                 parsed_confidence=confidence,
                 parsed_reasoning=reasoning,
+                parsed_source=parsed_source,
+                parsed_applied_date=parsed_applied_date,
                 application_id=target["id"],
             )
             auto_updated += 1
@@ -432,6 +442,8 @@ def _parse_pending_emails(
             parsed_status=parsed_status_value,
             parsed_confidence=confidence,
             parsed_reasoning=reasoning,
+            parsed_source=parsed_source,
+            parsed_applied_date=parsed_applied_date,
         )
         pending_review += 1
 
