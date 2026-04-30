@@ -237,3 +237,63 @@ sudo systemctl restart apptosync
 - Postgres migration (SQLite + VM disk is sufficient)
 - CI/CD auto-deploy
 - Custom domain (DuckDNS subdomain chosen)
+
+
+  ---                                                                                                                             
+  Where the app lives                                                                                                             
+                                                                                                                                  
+  Your app runs on a Google Cloud Platform (GCP) virtual machine — basically a small computer in Google's data center that stays  
+  on 24/7. It's an e2-micro instance (the free tier), named apptosync, located in us-central1-a (Iowa).                           
+                                                                          
+  That machine has your code, your SQLite database, and it runs your Flask app continuously.                                      
+                                                                          
+  ---                                                                                                                             
+  What gcloud compute ssh does                                            
+                                                                       
+  gcloud compute ssh apptosync --zone us-central1-a --command "..."
+
+  - gcloud — Google's CLI tool installed on your Mac                                                                              
+  - compute ssh — SSH into a GCP virtual machine (like logging into a remote computer)
+  - apptosync — the name of your VM                                                                                               
+  - --zone us-central1-a — tells GCP which datacenter the VM is in                                                                
+  - --command "..." — instead of opening an interactive terminal, just run this one command and exit                              
+                                                                                                                                  
+  So this one line is equivalent to you manually SSHing into the server and typing commands.                                      
+                                                                                                                                  
+  ---                                                                                                                             
+  What the deploy commands do, one by one                                 
+                                                                       
+  cd ~/JobPilot/job-tracker              
+  Navigate to the project folder on the VM.
+                                                                                                                                  
+  git pull
+  Download the latest code from GitHub onto the VM. This is how the new code gets onto the server.                                
+                                                                                                                                  
+  ~/.local/bin/uv sync --frozen                                        
+  Make sure Python dependencies are up to date. --frozen means "don't upgrade anything, just install exactly what's in the        
+  lockfile." We use the full path (~/.local/bin/uv) because SSH sessions don't load your full shell profile, so uv isn't on the   
+  PATH by default.                                                     
+                                                                                                                                  
+  sudo systemctl restart apptosync                                        
+  Restart the app. systemd is Linux's process manager — it keeps your app running as a background service. Restarting it picks up
+  the new code. Without this, the old code would still be running in memory even after git pull.                                  
+   
+  ---                                                                                                                             
+  The full flow in one picture                                            
+                                                                       
+  Your Mac  →  git push  →  GitHub       
+                                ↓                                                                                                 
+                          gcloud compute ssh
+                                ↓                                                                                                 
+                             GCP VM                                       
+                            git pull   ← pulls from GitHub                                                                        
+                            uv sync    ← installs deps                    
+                      systemctl restart ← reloads the app                                                                         
+                                ↓        
+                      Users visit apptosync.duckdns.org                                                                           
+                                                                          
+  ---                                                                                                                             
+  Why duckdns.org?                                                        
+                                                                                                                                  
+  GCP free-tier VMs don't get a permanent IP — it can change if the VM restarts. DuckDNS is a free dynamic DNS service that maps a
+   fixed domain name (apptosync.duckdns.org) to whatever the current IP of the VM is, so the URL always works.    
