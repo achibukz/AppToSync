@@ -141,6 +141,7 @@
                 </svg>
               </button>
               <button class="button secondary" id="filter-btn">Filter</button>
+              <a id="export-csv-btn" href="/export/csv" class="button secondary">Export CSV</a>
               
               <!-- Filter Dropdown -->
               <div class="filter-dropdown" id="filter-dropdown">
@@ -996,6 +997,9 @@
           window.location.href = `/?${params.toString()}`;
         });
       });
+    </script>
+    <script>
+      document.getElementById('export-csv-btn').href = '/export/csv' + window.location.search;
     </script>
   </body>
 </html>

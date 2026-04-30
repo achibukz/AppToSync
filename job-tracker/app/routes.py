@@ -1,9 +1,11 @@
 """Flask routes for the Job Tracker application."""
 
+import csv
+import io
 from datetime import date
 from typing import Any
 
-from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, flash, jsonify, redirect, render_template, request, session, url_for
 
 from app.auth import create_user, get_user_by_email, get_user_by_id, login_required, verify_password
 from app.extensions import limiter
@@ -454,6 +456,32 @@ def register_routes(app: Flask) -> None:
         sort_by = request.args.get("sort_by", "applied_date").strip()
         order = request.args.get("order", "desc").strip()
         return jsonify(fetch_applications(app, filters, sort_by=sort_by, order=order, user_id=user_id))
+
+    @app.get("/export/csv")
+    @login_required
+    def export_csv() -> Any:
+        user_id: int = session["user_id"]
+        filters = {k: request.args.get(k, "").strip() for k in ("status", "source", "search")}
+        sort_by = request.args.get("sort_by", "applied_date").strip()
+        order = request.args.get("order", "asc").strip()
+        applications = fetch_applications(app, filters, sort_by=sort_by, order=order, user_id=user_id)
+
+        fieldnames = [
+            "id", "company", "role", "status", "applied_date", "source",
+            "follow_up_date", "salary_min", "salary_max", "salary_currency",
+            "notes", "job_url", "source_type", "created_at", "updated_at",
+        ]
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(applications)
+
+        filename = f"applications_{date.today().isoformat()}.csv"
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @app.post("/api/applications")
     @login_required
