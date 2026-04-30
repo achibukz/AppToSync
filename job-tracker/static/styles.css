@@ -570,11 +570,13 @@ thead th {
 }
 
 .table-wrap {
-  overflow: visible;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 table {
   width: 100%;
+  min-width: 800px;
   border-collapse: collapse;
 }
 
@@ -1210,12 +1212,26 @@ pre {
   color: var(--text);
 }
 
-@media (max-width: 900px) {
-  .shell-split { grid-template-columns: 1fr; }
-  .sidebar { position: static; }
+@media (max-width: 600px) {
+  .shell {
+    width: calc(100vw - 16px);
+    padding: 16px 0 40px;
+  }
+
+  .table-card,
+  .emails-card {
+    padding: 14px;
+  }
+
+  .modal-content {
+    padding: 18px;
+  }
 }
 
 @media (max-width: 1100px) {
+  .shell-split { grid-template-columns: 1fr; }
+  .sidebar { position: static; }
+
   .layout,
   .hero,
   .stats-grid,
