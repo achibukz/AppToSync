@@ -8,6 +8,28 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+      .toast {
+        position: fixed;
+        bottom: 1.5rem;
+        right: 1.5rem;
+        padding: 0.75rem 1.25rem;
+        border-radius: 6px;
+        max-width: 420px;
+        font-size: 0.875rem;
+        line-height: 1.5;
+        opacity: 0;
+        transform: translateY(8px);
+        transition: opacity 0.2s, transform 0.2s;
+        z-index: 9999;
+        pointer-events: none;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      }
+      .toast.visible { opacity: 1; transform: translateY(0); }
+      .toast-success { background: #16a34a; color: #fff; }
+      .toast-error   { background: #dc2626; color: #fff; }
+      .sync-btn-loading { opacity: 0.6; cursor: not-allowed; }
+    </style>
   </head>
   <body>
     <div class="backdrop-grid" aria-hidden="true"></div>
@@ -65,10 +87,10 @@
         </section>
 
         <section class="stats-grid">
-          <article class="stat card"><span>Total roles tracked</span><strong>{{ stats.total }}</strong></article>
-          <article class="stat card"><span>Active pipeline</span><strong>{{ stats.active }}</strong></article>
-          <article class="stat card"><span>Interviews queued</span><strong>{{ stats.interviews }}</strong></article>
-          <article class="stat card"><span>Needs follow-up</span><strong>{{ stats.overdue }}</strong></article>
+          <article class="stat card"><span>Total roles tracked</span><strong id="stat-total">{{ stats.total }}</strong></article>
+          <article class="stat card"><span>Active pipeline</span><strong id="stat-active">{{ stats.active }}</strong></article>
+          <article class="stat card"><span>Interviews queued</span><strong id="stat-interviews">{{ stats.interviews }}</strong></article>
+          <article class="stat card"><span>Needs follow-up</span><strong id="stat-overdue">{{ stats.overdue }}</strong></article>
         </section>
       </aside>
 
@@ -724,33 +746,113 @@
         });
       });
 
-      // Status option click - change status
+      // Toast notification
+      function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('visible'));
+        setTimeout(() => {
+          toast.classList.remove('visible');
+          setTimeout(() => toast.remove(), 300);
+        }, 4000);
+      }
+
+      // Status option click - change status without page reload
+      const STATUS_COLORS = ['blue','yellow','orange','purple','green','red','gray'];
+      const ACTIVE_STATUSES = new Set(['Applied','Interview Scheduled','Technical Test','Final Interview']);
+
       document.querySelectorAll('.status-option').forEach(option => {
         option.addEventListener('click', (e) => {
-          const appId = e.target.closest('.status-dropdown').dataset.id;
-          const newStatus = e.target.dataset.status;
-          
-          // Update via API
+          const dropdown = e.target.closest('.status-dropdown');
+          const appId = dropdown.dataset.id;
+          const badge = document.querySelector(`.status-badge[data-id="${appId}"]`);
+          const oldStatus = badge.dataset.status;
+          const newStatus = e.target.closest('.status-option').dataset.status;
+
+          if (oldStatus === newStatus) {
+            dropdown.classList.remove('active');
+            return;
+          }
+
           fetch(`/api/applications/${appId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: newStatus })
           })
           .then(res => res.json())
-          .then(app => {
-            // Update the badge text and color
-            const badge = document.querySelector(`.status-badge[data-id="${appId}"]`);
+          .then(() => {
+            // Update badge
+            badge.classList.remove(...STATUS_COLORS);
+            badge.classList.add(statusStyles[newStatus] || 'gray');
             badge.textContent = newStatus;
             badge.dataset.status = newStatus;
-            
-            // Close dropdown
-            document.querySelector(`.status-dropdown[data-id="${appId}"]`).classList.remove('active');
-            
-            // Redirect to home to update colors and stats without re-parsing
-            window.location.href = '/';
-          });
+
+            // Update active option in dropdown
+            dropdown.querySelectorAll('.status-option').forEach(o => {
+              o.classList.toggle('active', o.dataset.status === newStatus);
+            });
+
+            // Update stats
+            const activeEl = document.getElementById('stat-active');
+            const interviewsEl = document.getElementById('stat-interviews');
+            if (activeEl) {
+              let n = parseInt(activeEl.textContent);
+              if (ACTIVE_STATUSES.has(oldStatus) && !ACTIVE_STATUSES.has(newStatus)) n--;
+              else if (!ACTIVE_STATUSES.has(oldStatus) && ACTIVE_STATUSES.has(newStatus)) n++;
+              activeEl.textContent = n;
+            }
+            if (interviewsEl) {
+              let n = parseInt(interviewsEl.textContent);
+              if (oldStatus === 'Interview Scheduled' && newStatus !== 'Interview Scheduled') n--;
+              else if (oldStatus !== 'Interview Scheduled' && newStatus === 'Interview Scheduled') n++;
+              interviewsEl.textContent = n;
+            }
+
+            dropdown.classList.remove('active');
+            showToast(`Status updated to "${newStatus}"`);
+          })
+          .catch(() => showToast('Failed to update status.', 'error'));
         });
       });
+
+      // Sync now — intercept form, use fetch, show toast
+      const syncForm = document.querySelector('.sync-form');
+      if (syncForm) {
+        syncForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const btn = syncForm.querySelector('button[type="submit"]');
+          const choice = syncForm.querySelector('select[name="parser_choice"]').value;
+          btn.disabled = true;
+          btn.classList.add('sync-btn-loading');
+          const originalText = btn.textContent;
+          btn.textContent = 'Syncing…';
+
+          try {
+            const res = await fetch('/api/gmail/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ parser_choice: choice })
+            });
+            const result = await res.json();
+            if (result.ok) {
+              const names = result.auto_updated_names || [];
+              let msg = `Sync complete: ${result.fetched || 0} fetched, ${result.updated || 0} auto-updated, ${result.pending_review || 0} pending review, ${result.paused || 0} paused.`;
+              if (names.length) msg += ` · ${names.join(', ')}`;
+              showToast(msg);
+            } else {
+              showToast(result.error || 'Sync failed.', 'error');
+            }
+          } catch {
+            showToast('Sync request failed.', 'error');
+          } finally {
+            btn.disabled = false;
+            btn.classList.remove('sync-btn-loading');
+            btn.textContent = originalText;
+          }
+        });
+      }
 
       // Filter button toggle
       const filterBtn = document.getElementById('filter-btn');

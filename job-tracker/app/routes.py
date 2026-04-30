@@ -434,6 +434,32 @@ def register_routes(app: Flask) -> None:
         finally:
             connection.close()
 
+    @app.post("/api/gmail/sync")
+    @limiter.limit("6 per minute")
+    def api_gmail_sync() -> Any:
+        """Synchronize Gmail messages on demand, returning JSON."""
+        payload = request.get_json(silent=True) or {}
+        choice = payload.get("parser_choice", "").strip()
+        choice_map = {v: (p, m) for (v, _label, p, m) in PARSER_MODEL_CHOICES}
+        provider_arg: str | None = None
+        gemini_arg: str | None = None
+        groq_arg: str | None = None
+        if choice in choice_map:
+            session["parser_choice"] = choice
+            prov, mdl = choice_map[choice]
+            provider_arg = prov
+            if prov == "gemini":
+                gemini_arg = mdl
+            else:
+                groq_arg = mdl
+        result = sync_gmail_messages(
+            app,
+            parser_provider=provider_arg,
+            gemini_model=gemini_arg,
+            groq_model=groq_arg,
+        )
+        return jsonify(result)
+
     @app.get("/api/emails/<message_id>")
     def api_get_email(message_id: str) -> Any:
         """Return a single parsed-email record."""
