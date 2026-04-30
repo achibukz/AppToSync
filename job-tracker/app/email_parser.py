@@ -6,51 +6,71 @@ import re
 from typing import Any
 
 from google import genai
+from groq import Groq
 
-from app.config import DEFAULT_GEMINI_MODEL, GEMINI_MODEL_OPTIONS, MONTHS
+from app.config import (
+    DEFAULT_GEMINI_MODEL,
+    DEFAULT_GROQ_MODEL,
+    GEMINI_MODEL_OPTIONS,
+    GROQ_MODEL_OPTIONS,
+    MONTHS,
+)
 
 
 def parse_job_email(
     email_text: str,
     provider: str = "local",
     gemini_model: str | None = None,
+    groq_model: str | None = None,
 ) -> dict[str, Any]:
     """Parse a job-related email using the specified provider.
-    
-    Falls back to local parsing if Gemini fails.
-    
-    Args:
-        email_text: Email content to parse
-        provider: Provider to use ('gemini' or 'local')
-        gemini_model: Gemini model name when provider is gemini
-        
-    Returns:
-        Dictionary with extracted job details and metadata
+
+    Falls back to local parsing if the AI provider fails.
     """
     provider = (provider or "local").strip().lower()
-    selected_model = normalize_gemini_model(gemini_model)
+    selected_gemini = normalize_gemini_model(gemini_model)
+    selected_groq = normalize_groq_model(groq_model)
+
     if provider == "gemini":
-        gemini_result, gemini_error = gemini_parse_job_email_with_error(
-            email_text,
-            model=selected_model,
-        )
-        if gemini_result is not None:
+        result, error = gemini_parse_job_email_with_error(email_text, model=selected_gemini)
+        if result is not None:
             return {
-                **gemini_result,
+                **result,
                 "provider": provider,
                 "provider_used": "gemini",
                 "provider_error": None,
-                "gemini_model": selected_model,
+                "gemini_model": selected_gemini,
+                "groq_model": None,
             }
-
         local_result = local_parse_job_email(email_text)
         return {
             **local_result,
             "provider": provider,
             "provider_used": "local",
-            "provider_error": gemini_error
-            or "Gemini request failed or GEMINI_API_KEY was missing; local parser was used instead.",
-            "gemini_model": selected_model,
+            "provider_error": error or "Gemini request failed or GEMINI_API_KEY was missing; local parser was used instead.",
+            "gemini_model": selected_gemini,
+            "groq_model": None,
+        }
+
+    if provider == "groq":
+        result, error = groq_parse_job_email_with_error(email_text, model=selected_groq)
+        if result is not None:
+            return {
+                **result,
+                "provider": provider,
+                "provider_used": "groq",
+                "provider_error": None,
+                "gemini_model": None,
+                "groq_model": selected_groq,
+            }
+        local_result = local_parse_job_email(email_text)
+        return {
+            **local_result,
+            "provider": provider,
+            "provider_used": "local",
+            "provider_error": error or "Groq request failed or GROQ_API_KEY was missing; local parser was used instead.",
+            "gemini_model": None,
+            "groq_model": selected_groq,
         }
 
     local_result = local_parse_job_email(email_text)
@@ -59,21 +79,37 @@ def parse_job_email(
         "provider": provider,
         "provider_used": "local",
         "provider_error": None,
-        "gemini_model": selected_model,
+        "gemini_model": selected_gemini,
+        "groq_model": None,
     }
 
 
 def parse_job_email_strict(
     email_text: str,
+    provider: str = "gemini",
     gemini_model: str | None = None,
+    groq_model: str | None = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    """Parse an email using Gemini only, with no local fallback.
+    """Parse an email using an AI provider only, with no local fallback.
 
-    Returns a tuple ``(result, error)``. On success, ``result`` is the parsed
-    payload and ``error`` is None. On failure (missing API key, quota,
-    network, malformed JSON, etc.), ``result`` is None and ``error`` is a
-    human-readable message — the caller should pause the email and retry later.
+    Returns ``(result, error)``. On failure the caller should pause and retry.
     """
+    provider = (provider or "gemini").strip().lower()
+
+    if provider == "groq":
+        selected_model = normalize_groq_model(groq_model)
+        result, error = groq_parse_job_email_with_error(email_text, model=selected_model)
+        if result is None:
+            return None, error
+        return {
+            **result,
+            "provider": "groq",
+            "provider_used": "groq",
+            "provider_error": None,
+            "gemini_model": None,
+            "groq_model": selected_model,
+        }, None
+
     selected_model = normalize_gemini_model(gemini_model)
     result, error = gemini_parse_job_email_with_error(email_text, model=selected_model)
     if result is None:
@@ -84,6 +120,65 @@ def parse_job_email_strict(
         "provider_used": "gemini",
         "provider_error": None,
         "gemini_model": selected_model,
+        "groq_model": None,
+    }, None
+
+
+def _build_parse_prompt(email_text: str) -> str:
+    return (
+        "Extract structured job application details from this email. "
+        "Return only valid JSON with these keys: is_job_related (boolean), company (string|null), "
+        "role (string|null), status (string|null), interview_date (string|null, ISO format), "
+        "confidence (number), extracted_by (string), reasoning_summary (string), field_explanations (object). "
+        "Use status values from: Applied, Interview Scheduled, Technical Test, Final Interview, "
+        "Offer Received, Rejected, Ghosted. "
+        "If the email is not related to a job application, set is_job_related to false and other fields to null where appropriate. "
+        "Keep reasoning_summary and field_explanations concise and factual. Do not provide hidden chain-of-thought. "
+        "No markdown, no code fences, no extra text. Email:\n\n"
+        f"{email_text.strip()}"
+    )
+
+
+def groq_parse_job_email_with_error(
+    email_text: str,
+    model: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Parse email using Groq, returning both result and error."""
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return None, "Groq request failed because GROQ_API_KEY was not set."
+    selected_model = normalize_groq_model(model)
+    prompt = _build_parse_prompt(email_text)
+    try:
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model=selected_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        text = response.choices[0].message.content
+    except Exception as exc:
+        return None, f"Groq request failed: {exc}"
+
+    if not text:
+        return None, "Groq response did not include parsed text."
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None, "Groq response text was not valid JSON."
+
+    return {
+        "is_job_related": bool(parsed.get("is_job_related", True)),
+        "company": parsed.get("company"),
+        "role": parsed.get("role"),
+        "status": parsed.get("status"),
+        "interview_date": parsed.get("interview_date"),
+        "confidence": parsed.get("confidence", 0.0),
+        "extracted_by": "groq",
+        "reasoning_summary": parsed.get("reasoning_summary"),
+        "field_explanations": parsed.get("field_explanations") or {},
     }, None
 
 
@@ -118,19 +213,7 @@ def gemini_parse_job_email_with_error(
     if not api_key:
         return None, "Gemini request failed because GEMINI_API_KEY or GOOGLE_API_KEY was not set."
     selected_model = normalize_gemini_model(model)
-
-    prompt = (
-        "Extract structured job application details from this email. "
-        "Return only valid JSON with these keys: is_job_related (boolean), company (string|null), "
-        "role (string|null), status (string|null), interview_date (string|null, ISO format), "
-        "confidence (number), extracted_by (string), reasoning_summary (string), field_explanations (object). "
-        "Use status values from: Applied, Interview Scheduled, Technical Test, Final Interview, "
-        "Offer Received, Rejected, Ghosted. "
-        "If the email is not related to a job application, set is_job_related to false and other fields to null where appropriate. "
-        "Keep reasoning_summary and field_explanations concise and factual. Do not provide hidden chain-of-thought. "
-        "No markdown, no code fences, no extra text. Email:\n\n"
-        f"{email_text.strip()}"
-    )
+    prompt = _build_parse_prompt(email_text)
 
     try:
         client = genai.Client(api_key=api_key)
@@ -370,3 +453,11 @@ def normalize_gemini_model(model: str | None) -> str:
     if candidate in GEMINI_MODEL_OPTIONS:
         return candidate
     return DEFAULT_GEMINI_MODEL
+
+
+def normalize_groq_model(model: str | None) -> str:
+    """Normalize Groq model input to a supported option."""
+    candidate = (model or DEFAULT_GROQ_MODEL).strip()
+    if candidate in GROQ_MODEL_OPTIONS:
+        return candidate
+    return DEFAULT_GROQ_MODEL

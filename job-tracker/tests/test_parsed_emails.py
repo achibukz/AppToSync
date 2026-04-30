@@ -155,7 +155,7 @@ def _make_strict_parser(result_overrides: dict[str, tuple[dict | None, str | Non
     """
     overrides = result_overrides or {}
 
-    def _parse(text: str, gemini_model: str | None = None):
+    def _parse(text: str, **kwargs):
         for mid, msg in FAKE_MESSAGES.items():
             snippet = msg.get("snippet", "")
             if snippet and snippet in text:

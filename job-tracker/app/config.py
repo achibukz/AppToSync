@@ -25,6 +25,20 @@ GEMINI_MODEL_OPTIONS = [
 
 DEFAULT_GEMINI_MODEL = GEMINI_MODEL_OPTIONS[1]
 
+GROQ_MODEL_OPTIONS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+DEFAULT_GROQ_MODEL = GROQ_MODEL_OPTIONS[0]
+
+PARSER_PROVIDER_OPTIONS = ["gemini", "groq"]
+DEFAULT_PARSER_PROVIDER = "gemini"
+
+PARSER_MODEL_CHOICES = [
+    ("gemini:gemini-2.5-flash",      "Gemini · 2.5 Flash",             "gemini", "gemini-2.5-flash"),
+    ("gemini:gemini-2.5-flash-lite", "Gemini · 2.5 Flash Lite",        "gemini", "gemini-2.5-flash-lite"),
+    ("groq:llama-3.3-70b-versatile", "Groq · Llama 3.3 70B Versatile", "groq",   "llama-3.3-70b-versatile"),
+    ("groq:llama-3.1-8b-instant",    "Groq · Llama 3.1 8B Instant",    "groq",   "llama-3.1-8b-instant"),
+]
+DEFAULT_PARSER_CHOICE = "gemini:gemini-2.5-flash-lite"
+
 # Gmail OAuth and polling settings.
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 GMAIL_REDIRECT_URI = "http://127.0.0.1:3000/gmail/callback"
