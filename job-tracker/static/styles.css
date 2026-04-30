@@ -34,6 +34,27 @@ a {
   color: inherit;
 }
 
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--panel);
+}
+
+.topbar-email {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.topbar-logout {
+  padding: 6px 14px;
+  font-size: 0.82rem;
+}
+
 .backdrop-grid {
   position: fixed;
   inset: 0;

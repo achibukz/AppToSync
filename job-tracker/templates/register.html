@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Create account — Job Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+      .auth-shell {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .auth-card {
+        width: 100%;
+        max-width: 400px;
+        padding: 36px;
+        border-radius: 20px;
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        box-shadow: var(--shadow);
+        animation: fade-up 0.4s ease both;
+      }
+      .auth-card .eyebrow { margin-bottom: 6px; }
+      .auth-card h1 { font-size: 1.6rem; margin-bottom: 24px; }
+      .auth-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+      .auth-field label { font-family: var(--mono); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+      .auth-field input {
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--panel-border);
+        background: var(--panel);
+        color: var(--text);
+        font-family: var(--body);
+        font-size: 0.95rem;
+        transition: border-color 0.2s;
+      }
+      .auth-field input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(226,183,205,0.15); }
+      .auth-hint { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+      .auth-submit { width: 100%; margin-top: 8px; padding: 12px; font-size: 1rem; }
+      .auth-footer { margin-top: 20px; text-align: center; font-size: 0.88rem; color: var(--muted); }
+      .auth-footer a { color: var(--secondary); font-weight: 600; text-decoration: none; }
+      .auth-footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="backdrop-grid" aria-hidden="true"></div>
+    <div class="auth-shell">
+      <div class="auth-card">
+        <p class="eyebrow">Job Tracker</p>
+        <h1>Create account</h1>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-stack" style="margin-bottom: 18px;">
+          {% for category, message in messages %}
+          <div class="flash-card {{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        <form method="post" action="{{ url_for('register_post') }}">
+          <div class="auth-field">
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" required autocomplete="email" placeholder="you@example.com">
+          </div>
+          <div class="auth-field">
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" required autocomplete="new-password" placeholder="••••••••">
+            <span class="auth-hint">At least 8 characters.</span>
+          </div>
+          <div class="auth-field">
+            <label for="confirm_password">Confirm password</label>
+            <input id="confirm_password" name="confirm_password" type="password" required autocomplete="new-password" placeholder="••••••••">
+          </div>
+          <button class="button auth-submit" type="submit">Create account</button>
+        </form>
+
+        <div class="auth-footer">
+          <p>Already have an account? <a href="{{ url_for('login_route') }}">Sign in</a></p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -4,22 +4,17 @@ import sqlite3
 from pathlib import Path
 
 from flask import Flask
+from werkzeug.security import generate_password_hash
+
+OWNER_EMAIL = "akibukzwork@gmail.com"
+OWNER_DEFAULT_PASSWORD = "JobPilot2026!"
 
 
 def get_db_path(app: Flask) -> Path:
-    """Get the database path from Flask config."""
     return app.config["DATABASE_PATH"]
 
 
 def connect_db(app: Flask) -> sqlite3.Connection:
-    """Create and return a database connection.
-
-    Args:
-        app: Flask application instance
-
-    Returns:
-        sqlite3 connection with row_factory set to sqlite3.Row
-    """
     connection = sqlite3.connect(get_db_path(app), timeout=10)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode=WAL")
@@ -27,19 +22,41 @@ def connect_db(app: Flask) -> sqlite3.Connection:
 
 
 def init_db(app: Flask) -> None:
-    """Initialize the database schema.
-    
-    Creates the applications table and indexes if they don't exist.
-    
-    Args:
-        app: Flask application instance
-    """
     connection = connect_db(app)
     try:
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+
+        # Per-user Gmail tokens (replaces the old singleton gmail_connections table).
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gmail_tokens (
+                user_id INTEGER PRIMARY KEY,
+                credentials_json TEXT NOT NULL,
+                connected_email TEXT,
+                connected_at TEXT NOT NULL,
+                last_sync_at TEXT,
+                last_sync_error TEXT,
+                sync_interval_minutes INTEGER NOT NULL DEFAULT 15,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+        # Keep old table definition so migration can read it on existing DBs.
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS gmail_connections (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
+                id INTEGER PRIMARY KEY,
                 credentials_json TEXT NOT NULL,
                 connected_email TEXT,
                 connected_at TEXT NOT NULL,
@@ -79,12 +96,6 @@ def init_db(app: Flask) -> None:
             """
         )
 
-        columns = {
-            row["name"] for row in connection.execute("PRAGMA table_info(applications)").fetchall()
-        }
-        if "gmail_message_id" not in columns:
-            connection.execute("ALTER TABLE applications ADD COLUMN gmail_message_id TEXT")
-
         connection.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_gmail_message_id
@@ -93,7 +104,6 @@ def init_db(app: Flask) -> None:
             """
         )
 
-        # Remove old global-scope watcher table if it exists from a previous version.
         connection.execute("DROP TABLE IF EXISTS company_watchers")
 
         connection.execute(
@@ -141,6 +151,68 @@ def init_db(app: Flask) -> None:
             "CREATE INDEX IF NOT EXISTS idx_parsed_emails_status ON parsed_emails(parse_status)"
         )
 
+        # Run column migrations after all tables exist.
+        _migrate_add_columns(connection)
+
+        connection.commit()
+
+        _seed_owner_and_migrate(connection)
         connection.commit()
     finally:
         connection.close()
+
+
+def _migrate_add_columns(connection: sqlite3.Connection) -> None:
+    app_cols = {r["name"] for r in connection.execute("PRAGMA table_info(applications)").fetchall()}
+    if "gmail_message_id" not in app_cols:
+        connection.execute("ALTER TABLE applications ADD COLUMN gmail_message_id TEXT")
+    if "user_id" not in app_cols:
+        connection.execute("ALTER TABLE applications ADD COLUMN user_id INTEGER REFERENCES users(id)")
+
+    email_cols = {r["name"] for r in connection.execute("PRAGMA table_info(parsed_emails)").fetchall()}
+    if "user_id" not in email_cols:
+        connection.execute("ALTER TABLE parsed_emails ADD COLUMN user_id INTEGER REFERENCES users(id)")
+
+
+def _seed_owner_and_migrate(connection: sqlite3.Connection) -> None:
+    from app.utils import utc_now
+
+    owner = connection.execute("SELECT id FROM users WHERE email = ?", (OWNER_EMAIL,)).fetchone()
+    if owner is None:
+        connection.execute(
+            "INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)",
+            (OWNER_EMAIL, generate_password_hash(OWNER_DEFAULT_PASSWORD), utc_now()),
+        )
+        owner = connection.execute("SELECT id FROM users WHERE email = ?", (OWNER_EMAIL,)).fetchone()
+
+    owner_id = owner["id"]
+
+    connection.execute("UPDATE applications SET user_id = ? WHERE user_id IS NULL", (owner_id,))
+    connection.execute("UPDATE parsed_emails SET user_id = ? WHERE user_id IS NULL", (owner_id,))
+
+    # One-time migration: copy gmail_connections row → gmail_tokens for owner.
+    gmail_row = connection.execute("SELECT * FROM gmail_connections WHERE id = 1").fetchone()
+    if gmail_row:
+        exists = connection.execute(
+            "SELECT user_id FROM gmail_tokens WHERE user_id = ?", (owner_id,)
+        ).fetchone()
+        if exists is None:
+            connection.execute(
+                """
+                INSERT INTO gmail_tokens (
+                    user_id, credentials_json, connected_email, connected_at, last_sync_at,
+                    last_sync_error, sync_interval_minutes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    owner_id,
+                    gmail_row["credentials_json"],
+                    gmail_row["connected_email"],
+                    gmail_row["connected_at"],
+                    gmail_row["last_sync_at"],
+                    gmail_row["last_sync_error"],
+                    gmail_row["sync_interval_minutes"],
+                    gmail_row["created_at"],
+                    gmail_row["updated_at"],
+                ),
+            )

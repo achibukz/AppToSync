@@ -75,19 +75,20 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
 
 def seed_demo_data(app: Flask) -> None:
-    """Seed database with demo data if empty.
-    
-    Args:
-        app: Flask application instance
-    """
-    if fetch_applications(app):
-        return
-
-    timestamp = utc_now()
+    """Seed database with demo data for owner account if empty."""
     connection = connect_db(app)
     try:
+        owner = connection.execute(
+            "SELECT id FROM users WHERE email = 'akibukzwork@gmail.com'"
+        ).fetchone()
+        if owner is None:
+            return
+        owner_id = owner["id"]
+        if fetch_applications(app, user_id=owner_id):
+            return
+        timestamp = utc_now()
         for payload in DEMO_APPLICATIONS:
-            insert_application(connection, payload, timestamp)
+            insert_application(connection, payload, timestamp, owner_id)
         connection.commit()
     finally:
         connection.close()
