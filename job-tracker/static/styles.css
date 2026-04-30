@@ -27,7 +27,8 @@ body {
   color: var(--text);
   background: var(--bg);
   min-height: 100vh;
-  position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 a {
@@ -42,6 +43,7 @@ a {
   padding: 10px 24px;
   border-top: 1px solid var(--panel-border);
   background: var(--panel);
+  margin-top: auto;
 }
 
 .topbar-email {
@@ -67,6 +69,7 @@ a {
 }
 
 .shell {
+  flex: 1;
   width: calc(100vw - 48px);
   max-width: 2400px;
   margin: 0 auto;
@@ -975,29 +978,18 @@ pre {
 
 .status-dropdown {
   display: none;
-  position: absolute;
-  top: 100%;
-  left: 0;
+  position: fixed;
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   z-index: 1001;
   min-width: 180px;
-  margin-top: 8px;
   padding: 4px 0;
 }
 
 .status-dropdown.active {
   display: block;
-}
-
-.status-dropdown.open-up {
-  top: auto;
-  bottom: 100%;
-  margin-top: 0;
-  margin-bottom: 8px;
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.15);
 }
 
 .status-option {

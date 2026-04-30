@@ -707,34 +707,34 @@
           const appId = badge.dataset.id;
           const dropdown = document.querySelector(`.status-dropdown[data-id="${appId}"]`);
           const wasActive = dropdown.classList.contains('active');
-          
+
           // Close all other dropdowns
           document.querySelectorAll('.status-dropdown').forEach(d => {
             d.classList.remove('active');
           });
 
           if (!wasActive) {
-            // Measure available space
             const badgeRect = badge.getBoundingClientRect();
             const spaceBelow = window.innerHeight - badgeRect.bottom;
-            const spaceAbove = badgeRect.top;
-            
-            // Show dropdown temporarily to measure its height
+
+            // Position with fixed coords so it escapes any overflow container
+            dropdown.style.left = badgeRect.left + 'px';
+            dropdown.style.top = '';
+            dropdown.style.bottom = '';
+
+            // Measure height while hidden
             dropdown.style.visibility = 'hidden';
-            dropdown.style.display = 'block';
-            const dropdownHeight = dropdown.offsetHeight;
-            dropdown.style.display = ''; // Clear inline display
-            dropdown.style.visibility = ''; // Clear inline visibility
-
-            // Determine if it should open up or down
-            // Open up if not enough space below AND more space above than below
-            if (spaceBelow < dropdownHeight + 10 && spaceAbove > spaceBelow) {
-              dropdown.classList.add('open-up');
-            } else {
-              dropdown.classList.remove('open-up');
-            }
-
             dropdown.classList.add('active');
+            const dropdownHeight = dropdown.offsetHeight;
+            dropdown.style.visibility = '';
+
+            if (spaceBelow < dropdownHeight + 10) {
+              dropdown.style.top = '';
+              dropdown.style.bottom = (window.innerHeight - badgeRect.top + 4) + 'px';
+            } else {
+              dropdown.style.top = (badgeRect.bottom + 4) + 'px';
+              dropdown.style.bottom = '';
+            }
           }
         });
       });
