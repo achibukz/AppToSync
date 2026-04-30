@@ -14,6 +14,8 @@ from flask import Flask
 
 from app.config import (
     DEFAULT_GEMINI_MODEL,
+    DEFAULT_GROQ_MODEL,
+    DEFAULT_PARSER_PROVIDER,
     GMAIL_POLL_INTERVAL_SECONDS,
     GMAIL_REDIRECT_URI,
     GMAIL_SCOPES,
@@ -164,7 +166,13 @@ def disconnect_gmail(app: Flask) -> None:
         connection.close()
 
 
-def sync_gmail_messages(app: Flask) -> dict[str, Any]:
+def sync_gmail_messages(
+    app: Flask,
+    *,
+    parser_provider: str | None = None,
+    gemini_model: str | None = None,
+    groq_model: str | None = None,
+) -> dict[str, Any]:
     """Fetch new Gmail messages and convert them into applications."""
     connection = connect_db(app)
     try:
@@ -243,10 +251,12 @@ def sync_gmail_messages(app: Flask) -> dict[str, Any]:
         connection.commit()
 
         # Step 2: parse all paused emails (newly fetched + previously failed).
-        gemini_model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
+        _provider = (parser_provider or os.getenv("PARSER_PROVIDER") or DEFAULT_PARSER_PROVIDER).strip().lower()
+        _gemini = (gemini_model or os.getenv("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL).strip()
+        _groq = (groq_model or os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL).strip()
 
-        parsed_count, updated, pending_review, paused, not_job, parse_error = _parse_pending_emails(
-            connection, gemini_model=gemini_model
+        parsed_count, updated, pending_review, paused, not_job, parse_error, auto_updated_names = _parse_pending_emails(
+            connection, parser_provider=_provider, gemini_model=_gemini, groq_model=_groq
         )
         if parse_error:
             latest_error = parse_error
@@ -275,12 +285,20 @@ def sync_gmail_messages(app: Flask) -> dict[str, Any]:
             "skipped": not_job + paused,
             "error": latest_error,
             "last_sync_at": now,
+            "auto_updated_names": auto_updated_names,
         }
     finally:
         connection.close()
 
 
-def retry_parse_email(app: Flask, gmail_message_id: str) -> dict[str, Any]:
+def retry_parse_email(
+    app: Flask,
+    gmail_message_id: str,
+    *,
+    parser_provider: str | None = None,
+    gemini_model: str | None = None,
+    groq_model: str | None = None,
+) -> dict[str, Any]:
     """Force a single email back into the parse queue and parse it immediately.
 
     Returns a dict describing the outcome: ``{ok, parse_status, error}``.
@@ -296,8 +314,10 @@ def retry_parse_email(app: Flask, gmail_message_id: str) -> dict[str, Any]:
         mark_for_retry(connection, gmail_message_id)
         connection.commit()
 
-        gemini_model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
-        _parse_pending_emails(connection, gemini_model=gemini_model)
+        _provider = (parser_provider or os.getenv("PARSER_PROVIDER") or DEFAULT_PARSER_PROVIDER).strip().lower()
+        _gemini = (gemini_model or os.getenv("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL).strip()
+        _groq = (groq_model or os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL).strip()
+        _parse_pending_emails(connection, parser_provider=_provider, gemini_model=_gemini, groq_model=_groq)  # names unused in retry path
         connection.commit()
 
         updated = fetch_email(connection, gmail_message_id) or {}
@@ -310,7 +330,13 @@ def retry_parse_email(app: Flask, gmail_message_id: str) -> dict[str, Any]:
         connection.close()
 
 
-def _parse_pending_emails(connection, *, gemini_model: str) -> tuple[int, int, int, int, int, str | None]:
+def _parse_pending_emails(
+    connection,
+    *,
+    parser_provider: str,
+    gemini_model: str,
+    groq_model: str,
+) -> tuple[int, int, int, int, int, str | None, list[str]]:
     """Parse every paused email row.
 
     Returns ``(parsed, auto_updated, pending_review, paused, not_job, latest_error)``.
@@ -321,13 +347,19 @@ def _parse_pending_emails(connection, *, gemini_model: str) -> tuple[int, int, i
     still_paused = 0
     not_job = 0
     latest_error: str | None = None
+    auto_updated_names: list[str] = []
 
     for record in fetch_emails_needing_parse(connection):
         message_id = record["gmail_message_id"]
         body = record.get("body_text") or ""
         sender = record.get("from_address") or ""
 
-        result, error = parse_job_email_strict(body, gemini_model=gemini_model)
+        result, error = parse_job_email_strict(
+            body,
+            provider=parser_provider,
+            gemini_model=gemini_model,
+            groq_model=groq_model,
+        )
         if result is None:
             update_parse_failure(connection, message_id, error or "Parse failed.")
             still_paused += 1
@@ -390,6 +422,7 @@ def _parse_pending_emails(connection, *, gemini_model: str) -> tuple[int, int, i
                 application_id=target["id"],
             )
             auto_updated += 1
+            auto_updated_names.append(f"{target['company']} — {target['role']} → {new_status}")
             continue
 
         # No match: queue for user review.
@@ -406,7 +439,7 @@ def _parse_pending_emails(connection, *, gemini_model: str) -> tuple[int, int, i
         )
         pending_review += 1
 
-    return parsed_count, auto_updated, pending_review, still_paused, not_job, latest_error
+    return parsed_count, auto_updated, pending_review, still_paused, not_job, latest_error, auto_updated_names
 
 
 def _email_notes(subject: str | None, parsed_status: str | None) -> str:

@@ -150,7 +150,7 @@ class GmailSyncTests(unittest.TestCase):
             },
         }
 
-        def fake_strict_parser(email_text: str, gemini_model: str | None = None):
+        def fake_strict_parser(email_text: str, **kwargs):
             return ({
                 "is_job_related": True,
                 "company": "Example Co",
@@ -226,7 +226,7 @@ class GmailSyncTests(unittest.TestCase):
                         "snippet": "thanks"},
         }
 
-        def fake_strict_parser(email_text: str, gemini_model: str | None = None):
+        def fake_strict_parser(email_text: str, **kwargs):
             return ({
                 "is_job_related": True, "company": "X", "role": "Y", "status": "Applied",
                 "interview_date": None, "confidence": 0.9, "extracted_by": "gemini",

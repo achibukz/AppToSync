@@ -6,6 +6,8 @@ from typing import Any
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 
 from app.config import (
+    DEFAULT_PARSER_CHOICE,
+    PARSER_MODEL_CHOICES,
     SOURCE_OPTIONS,
     SOURCE_TYPE_OPTIONS,
     STATUS_OPTIONS,
@@ -118,6 +120,8 @@ def _render_dashboard(
         gmail_status=gmail_status,
         pending_emails=pending_emails,
         paused_emails=paused_emails,
+        parser_choices=[(v, label) for (v, label, _p, _m) in PARSER_MODEL_CHOICES],
+        current_parser_choice=session.get("parser_choice", DEFAULT_PARSER_CHOICE),
     )
 
 
@@ -302,7 +306,25 @@ def register_routes(app: Flask) -> None:
     @app.post("/gmail/sync")
     def gmail_sync_route() -> Any:
         """Synchronize Gmail messages on demand."""
-        result = sync_gmail_messages(app)
+        choice = request.form.get("parser_choice", "").strip()
+        choice_map = {v: (p, m) for (v, _label, p, m) in PARSER_MODEL_CHOICES}
+        provider_arg: str | None = None
+        gemini_arg: str | None = None
+        groq_arg: str | None = None
+        if choice in choice_map:
+            session["parser_choice"] = choice
+            prov, mdl = choice_map[choice]
+            provider_arg = prov
+            if prov == "gemini":
+                gemini_arg = mdl
+            else:
+                groq_arg = mdl
+        result = sync_gmail_messages(
+            app,
+            parser_provider=provider_arg,
+            gemini_model=gemini_arg,
+            groq_model=groq_arg,
+        )
         if result["ok"]:
             flash(
                 "Gmail sync complete: "
@@ -312,6 +334,9 @@ def register_routes(app: Flask) -> None:
                 f"{result.get('paused', 0)} paused.",
                 "success",
             )
+            names = result.get("auto_updated_names") or []
+            if names:
+                flash("Auto-updated: " + " · ".join(names), "success")
         else:
             flash(result["error"], "error")
         return redirect(url_for("dashboard"))

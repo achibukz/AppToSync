@@ -12,72 +12,80 @@
   <body>
     <div class="backdrop-grid" aria-hidden="true"></div>
 
-    <main class="shell">
-      <section class="top-note" aria-label="weekly focus">
-        <p>Weekly focus: capture jobs quickly, review pipeline daily, follow up before overdue.</p>
-      </section>
-
-      <section class="hero card">
-        <div>
-          <p class="eyebrow">Job Tracker</p>
-          <h1>Track applications and follow-ups</h1>
-          <p class="lede">Fast capture, status clarity, and follow-up discipline in one workspace.</p>
-        </div>
-        <div class="hero-kicker" aria-label="pipeline reminder">
-          <p class="kicker-label">Pipeline rule</p>
-          <p class="kicker-value">No application sits untouched for 7+ days.</p>
-        </div>
-      </section>
-
-      {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-      <section class="flash-stack">
-        {% for category, message in messages %}
-        <article class="flash-card {{ category }}">{{ message }}</article>
-        {% endfor %}
-      </section>
-      {% endif %}
-      {% endwith %}
-
-      <section class="stats-grid">
-        <article class="stat card"><span>Total roles tracked</span><strong>{{ stats.total }}</strong></article>
-        <article class="stat card"><span>Active pipeline</span><strong>{{ stats.active }}</strong></article>
-        <article class="stat card"><span>Interviews queued</span><strong>{{ stats.interviews }}</strong></article>
-        <article class="stat card"><span>Needs follow-up</span><strong>{{ stats.overdue }}</strong></article>
-      </section>
-
-      <section class="card gmail-card">
-        <div class="gmail-card-copy">
-          <p class="eyebrow">Gmail sync</p>
-          <h2>Connect Gmail to auto-capture job emails</h2>
-          <p class="lede">Read-only OAuth keeps your mailbox local to this app. New job emails are parsed into applications on a schedule.</p>
-        </div>
-        <div class="gmail-card-status">
+    <main class="shell shell-split">
+      <aside class="sidebar">
+        <section class="hero card">
           <div>
-            <span class="status-pill {% if gmail_status.connected %}connected{% else %}disconnected{% endif %}">
-              {% if gmail_status.connected %}Connected{% else %}Not connected{% endif %}
-            </span>
-            <p class="gmail-meta">{% if gmail_status.connected_email %}{{ gmail_status.connected_email }}{% else %}Gmail OAuth is not set up yet.{% endif %}</p>
-            <p class="gmail-meta">Last sync: {{ gmail_status.last_sync_at or 'Never' }}</p>
-            <p class="gmail-meta">Sync interval: every {{ gmail_status.sync_interval_minutes }} minutes</p>
-            {% if gmail_status.last_sync_error %}
-            <p class="danger">{{ gmail_status.last_sync_error }}</p>
-            {% endif %}
+            <p class="eyebrow">Job Tracker</p>
+            <h1>Track applications and follow-ups</h1>
+            <p class="lede">Fast capture, status clarity, and follow-up discipline in one workspace.</p>
           </div>
-          <div class="gmail-card-actions">
-            {% if gmail_status.connected %}
-            <form method="post" action="{{ url_for('gmail_sync_route') }}">
-              <button class="button" type="submit">Sync now</button>
-            </form>
-            <form method="post" action="{{ url_for('gmail_disconnect_route') }}">
-              <button class="button secondary" type="submit">Disconnect</button>
-            </form>
-            {% else %}
-            <a class="button" href="{{ url_for('gmail_connect_route') }}">Connect Gmail</a>
-            {% endif %}
+          <div class="hero-kicker" aria-label="pipeline reminder">
+            <p class="kicker-label">Pipeline rule</p>
+            <p class="kicker-value">No application sits untouched for 7+ days.</p>
           </div>
-        </div>
-      </section>
+        </section>
+
+        <section class="card gmail-card">
+          <div class="gmail-card-copy">
+            <p class="eyebrow">Gmail sync</p>
+            <h2>Connect Gmail to auto-capture job emails</h2>
+            <p class="lede">Read-only OAuth keeps your mailbox local to this app. New job emails are parsed into applications on a schedule.</p>
+          </div>
+          <div class="gmail-card-status">
+            <div>
+              <span class="status-pill {% if gmail_status.connected %}connected{% else %}disconnected{% endif %}">
+                {% if gmail_status.connected %}Connected{% else %}Not connected{% endif %}
+              </span>
+              <p class="gmail-meta">{% if gmail_status.connected_email %}{{ gmail_status.connected_email }}{% else %}Gmail OAuth is not set up yet.{% endif %}</p>
+              <p class="gmail-meta">Last sync: {{ gmail_status.last_sync_at or 'Never' }}</p>
+              <p class="gmail-meta">Sync interval: every {{ gmail_status.sync_interval_minutes }} minutes</p>
+              {% if gmail_status.last_sync_error %}
+              <p class="danger">{{ gmail_status.last_sync_error }}</p>
+              {% endif %}
+            </div>
+            <div class="gmail-card-actions">
+              {% if gmail_status.connected %}
+              <form method="post" action="{{ url_for('gmail_sync_route') }}" class="sync-form">
+                <select name="parser_choice" class="parser-select">
+                  {% for value, label in parser_choices %}
+                    <option value="{{ value }}" {% if value == current_parser_choice %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+                <button class="button" type="submit">Sync now</button>
+              </form>
+              <form method="post" action="{{ url_for('gmail_disconnect_route') }}">
+                <button class="button secondary" type="submit">Disconnect</button>
+              </form>
+              {% else %}
+              <a class="button" href="{{ url_for('gmail_connect_route') }}">Connect Gmail</a>
+              {% endif %}
+            </div>
+          </div>
+        </section>
+
+        <section class="stats-grid">
+          <article class="stat card"><span>Total roles tracked</span><strong>{{ stats.total }}</strong></article>
+          <article class="stat card"><span>Active pipeline</span><strong>{{ stats.active }}</strong></article>
+          <article class="stat card"><span>Interviews queued</span><strong>{{ stats.interviews }}</strong></article>
+          <article class="stat card"><span>Needs follow-up</span><strong>{{ stats.overdue }}</strong></article>
+        </section>
+      </aside>
+
+      <section class="main-column">
+        <section class="top-note" aria-label="weekly focus">
+          <p>Weekly focus: capture jobs quickly, review pipeline daily, follow up before overdue.</p>
+        </section>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <section class="flash-stack">
+          {% for category, message in messages %}
+          <article class="flash-card {{ category }}">{{ message }}</article>
+          {% endfor %}
+        </section>
+        {% endif %}
+        {% endwith %}
 
       <!-- Tabs -->
       <div class="tabs-container">
@@ -102,7 +110,6 @@
           <article class="card table-card">
             <div class="section-heading">
               <h2>Applications</h2>
-              <p>{{ applications|length }} visible record(s), sorted by applied date.</p>
             </div>
             <div class="filter-bar">
               <button class="search-icon-btn" id="search-icon-btn" title="Search">
@@ -155,7 +162,7 @@
               <table>
                 <thead>
                   <tr>
-                    <th class="sortable" data-sort="company">
+                    <th class="sortable col-company" data-sort="company">
                       Company
                       {% if sort_by == 'company' %}
                         {% if order == 'asc' %}
@@ -165,7 +172,7 @@
                         {% endif %}
                       {% endif %}
                     </th>
-                    <th class="sortable" data-sort="role">
+                    <th class="sortable col-role" data-sort="role">
                       Role
                       {% if sort_by == 'role' %}
                         {% if order == 'asc' %}
@@ -225,7 +232,7 @@
                         {% endif %}
                       {% endif %}
                     </th>
-                    <th>Notes</th>
+                    <th class="col-notes">Notes</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -277,7 +284,7 @@
                     <td class="notes-cell">
                       <span class="muted" title="{{ application.notes or '' }}">
                         {% if application.notes %}
-                        {{ application.notes[:30] }}{% if application.notes|length > 30 %}...{% endif %}
+                        {{ application.notes[:60] }}{% if application.notes|length > 60 %}...{% endif %}
                         {% else %}
                         —
                         {% endif %}
@@ -397,6 +404,7 @@
           {% endif %}
         </div>
       </div>
+      </section><!-- /.main-column -->
 
       <!-- Modal for Add/Edit Application -->
       <div class="modal" id="app-modal">

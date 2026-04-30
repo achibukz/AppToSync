@@ -120,7 +120,7 @@ def _make_parser(job_related_ids: set[str], status_map: dict[str, str] | None = 
     """
     status_map = status_map or {}
 
-    def _parse(text: str, gemini_model=None):
+    def _parse(text: str, **kwargs):
         for mid, msg in FAKE_MESSAGES.items():
             snippet = msg.get("snippet", "")
             if snippet and snippet in text:

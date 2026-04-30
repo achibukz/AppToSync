@@ -46,10 +46,28 @@ a {
 }
 
 .shell {
-  width: min(1380px, calc(100vw - 34px));
+  width: calc(100vw - 48px);
+  max-width: 2400px;
   margin: 0 auto;
   padding: 24px 0 50px;
 }
+
+.shell-split {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 24px;
+}
+
+.main-column { min-width: 0; }
 
 .top-note {
   margin: 0 0 14px;
@@ -252,6 +270,31 @@ button:hover {
   gap: 10px;
 }
 
+.sidebar .hero { flex-direction: column; gap: 12px; }
+.sidebar .hero h1 { font-size: 1.5rem; max-width: none; }
+.sidebar .hero-kicker { max-width: none; align-self: stretch; }
+
+.sidebar .gmail-card { flex-direction: column; margin-bottom: 0; }
+.sidebar .gmail-card-copy,
+.sidebar .gmail-card-status { max-width: none; min-width: 0; }
+
+.sidebar .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
+
+.sync-form { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.parser-select {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: #fff;
+  font: inherit;
+}
+.gmail-card-actions .button {
+  padding: 7px 16px;
+  font-size: 0.875rem;
+}
+
 .source-badge {
   display: inline-block;
   margin-left: 6px;
@@ -394,6 +437,10 @@ button:hover {
   animation: fade-up 0.48s ease both;
   background: var(--panel-soft);
   border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 90px;
 }
 
 .stat:nth-child(2) {
@@ -536,7 +583,7 @@ td {
   padding: 12px 10px;
   text-align: left;
   border-bottom: 1px solid rgba(86, 98, 126, 0.15);
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 thead th {
@@ -573,6 +620,7 @@ thead th.sortable:hover {
   border-radius: 999px;
   font-size: 0.79rem;
   letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
 .badge.blue {
@@ -831,6 +879,10 @@ pre {
   text-decoration: underline;
 }
 
+.col-company { width: 220px; }
+.col-role    { width: 250px; }
+.col-notes   { width: 320px; }
+
 .company-cell {
   cursor: pointer;
 }
@@ -975,10 +1027,13 @@ pre {
 }
 
 /* Salary and notes columns */
-.salary-cell,
+.salary-cell {
+  font-size: 0.9rem;
+}
+
 .notes-cell {
   font-size: 0.9rem;
-  max-width: 150px;
+  max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1155,6 +1210,11 @@ pre {
   color: var(--text);
 }
 
+@media (max-width: 900px) {
+  .shell-split { grid-template-columns: 1fr; }
+  .sidebar { position: static; }
+}
+
 @media (max-width: 1100px) {
   .layout,
   .hero,
@@ -1174,7 +1234,7 @@ pre {
   }
 
   .shell {
-    width: min(100vw - 18px, 1380px);
+    width: calc(100vw - 24px);
   }
 
   .modal-content {
