@@ -57,6 +57,19 @@ def gmail_is_configured() -> bool:
     return bool(os.getenv("GMAIL_CLIENT_ID") and os.getenv("GMAIL_CLIENT_SECRET"))
 
 
+def clear_gmail_sync_error(app: Flask, user_id: int) -> None:
+    """Clear stored sync error so it doesn't persist across page loads."""
+    connection = connect_db(app)
+    try:
+        connection.execute(
+            "UPDATE gmail_tokens SET last_sync_error = NULL WHERE user_id = ?",
+            (user_id,),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def get_gmail_status(app: Flask, user_id: int) -> dict[str, Any]:
     """Return the current Gmail connection and sync status for a user."""
     connection = connect_db(app)

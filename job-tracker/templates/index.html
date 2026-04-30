@@ -450,11 +450,13 @@
             </label>
             <label>
               <span>Source</span>
-              <select name="source">
+              <select id="source-select-field">
                 {% for option in source_options %}
                 <option value="{{ option }}">{{ option }}</option>
                 {% endfor %}
               </select>
+              <input type="text" id="source-custom-field" placeholder="Specify source…" style="display:none; margin-top:0.35rem;">
+              <input type="hidden" name="source" id="source-value-field" value="LinkedIn">
             </label>
             <label>
               <span>Status</span>
@@ -533,6 +535,9 @@
         });
       });
 
+      // Move all status dropdowns to <body> so iOS Safari overflow-x:auto doesn't clip them
+      document.querySelectorAll('.status-dropdown').forEach(d => document.body.appendChild(d));
+
       // Modal management
       const modal = document.getElementById('app-modal');
       const addBtn = document.getElementById('add-app-btn');
@@ -542,6 +547,48 @@
       const statusOptions = {{ status_options | tojson }};
       const sourceOptions = {{ source_options | tojson }};
       const statusStyles = {{ status_styles | tojson }};
+
+      // ── Source field with "Other" free-text ──────────────────────────────
+      const sourceSelectField = document.getElementById('source-select-field');
+      const sourceCustomField = document.getElementById('source-custom-field');
+      const sourceValueField  = document.getElementById('source-value-field');
+
+      function setSourceValue(value) {
+        if (sourceOptions.includes(value)) {
+          sourceSelectField.value = value;
+          sourceCustomField.style.display = 'none';
+          sourceCustomField.value = '';
+          sourceValueField.value = value;
+        } else {
+          sourceSelectField.value = 'Other';
+          sourceCustomField.style.display = '';
+          sourceCustomField.value = value || '';
+          sourceValueField.value = value || 'Other';
+        }
+      }
+
+      sourceSelectField.addEventListener('change', () => {
+        if (sourceSelectField.value === 'Other') {
+          sourceCustomField.style.display = '';
+          sourceValueField.value = sourceCustomField.value.trim() || 'Other';
+          sourceCustomField.focus();
+        } else {
+          sourceCustomField.style.display = 'none';
+          sourceCustomField.value = '';
+          sourceValueField.value = sourceSelectField.value;
+        }
+      });
+
+      sourceCustomField.addEventListener('input', () => {
+        sourceValueField.value = sourceCustomField.value.trim() || 'Other';
+      });
+
+      appForm.addEventListener('submit', () => {
+        if (sourceSelectField.value === 'Other') {
+          sourceValueField.value = sourceCustomField.value.trim() || 'Other';
+        }
+      });
+      // ─────────────────────────────────────────────────────────────────────
 
       // ── Tag input for email watchers ─────────────────────────────────────
       let watcherTags = [];
@@ -606,7 +653,7 @@
         appForm.querySelector('input[name="applied_date"]').value = '{{ today }}';
         appForm.querySelector('input[name="salary_currency"]').value = '{{ default_currency }}';
         appForm.querySelector('select[name="status"]').value = 'Applied';
-        appForm.querySelector('select[name="source"]').value = 'LinkedIn';
+        setSourceValue('LinkedIn');
         appForm.querySelector('select[name="source_type"]').value = 'manual';
         watcherTags = [];
         renderTags();
@@ -641,7 +688,7 @@
             appForm.querySelector('input[name="company"]').value = app.company;
             appForm.querySelector('input[name="role"]').value = app.role;
             appForm.querySelector('input[name="job_url"]').value = app.job_url || '';
-            appForm.querySelector('select[name="source"]').value = app.source || 'Other';
+            setSourceValue(app.source || 'Other');
             appForm.querySelector('select[name="status"]').value = app.status || 'Applied';
             appForm.querySelector('input[name="applied_date"]').value = app.applied_date;
             appForm.querySelector('input[name="follow_up_date"]').value = app.follow_up_date || '';
@@ -690,7 +737,7 @@
           appForm.querySelector('input[name="applied_date"]').value = btn.dataset.appliedDate || '{{ today }}';
           appForm.querySelector('input[name="salary_currency"]').value = '{{ default_currency }}';
           appForm.querySelector('select[name="status"]').value = btn.dataset.status || 'Applied';
-          appForm.querySelector('select[name="source"]').value = 'Other';
+          setSourceValue('Other');
           appForm.querySelector('select[name="source_type"]').value = 'gmail';
 
           watcherTags = [];
@@ -836,26 +883,15 @@
           btn.textContent = 'Syncing…';
 
           try {
-            const res = await fetch('/api/gmail/sync', {
+            await fetch('/api/gmail/sync', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ parser_choice: choice })
             });
-            const result = await res.json();
-            if (result.ok) {
-              const names = result.auto_updated_names || [];
-              let msg = `Sync complete: ${result.fetched || 0} fetched, ${result.updated || 0} auto-updated, ${result.pending_review || 0} pending review, ${result.paused || 0} paused.`;
-              if (names.length) msg += ` · ${names.join(', ')}`;
-              showToast(msg);
-            } else {
-              showToast(result.error || 'Sync failed.', 'error');
-            }
           } catch {
-            showToast('Sync request failed.', 'error');
+            // ignore network errors — reload will show server flash message
           } finally {
-            btn.disabled = false;
-            btn.classList.remove('sync-btn-loading');
-            btn.textContent = originalText;
+            window.location.reload();
           }
         });
       }
