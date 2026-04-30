@@ -27,11 +27,34 @@ body {
   color: var(--text);
   background: var(--bg);
   min-height: 100vh;
-  position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 a {
   color: inherit;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 10px 24px;
+  border-top: 1px solid var(--panel-border);
+  background: var(--panel);
+  margin-top: auto;
+}
+
+.topbar-email {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.topbar-logout {
+  padding: 6px 14px;
+  font-size: 0.82rem;
 }
 
 .backdrop-grid {
@@ -46,6 +69,7 @@ a {
 }
 
 .shell {
+  flex: 1;
   width: calc(100vw - 48px);
   max-width: 2400px;
   margin: 0 auto;
@@ -570,11 +594,13 @@ thead th {
 }
 
 .table-wrap {
-  overflow: visible;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 table {
   width: 100%;
+  min-width: 800px;
   border-collapse: collapse;
 }
 
@@ -952,29 +978,18 @@ pre {
 
 .status-dropdown {
   display: none;
-  position: absolute;
-  top: 100%;
-  left: 0;
+  position: fixed;
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   z-index: 1001;
   min-width: 180px;
-  margin-top: 8px;
   padding: 4px 0;
 }
 
 .status-dropdown.active {
   display: block;
-}
-
-.status-dropdown.open-up {
-  top: auto;
-  bottom: 100%;
-  margin-top: 0;
-  margin-bottom: 8px;
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.15);
 }
 
 .status-option {
@@ -1210,12 +1225,26 @@ pre {
   color: var(--text);
 }
 
-@media (max-width: 900px) {
-  .shell-split { grid-template-columns: 1fr; }
-  .sidebar { position: static; }
+@media (max-width: 600px) {
+  .shell {
+    width: calc(100vw - 16px);
+    padding: 16px 0 40px;
+  }
+
+  .table-card,
+  .emails-card {
+    padding: 14px;
+  }
+
+  .modal-content {
+    padding: 18px;
+  }
 }
 
 @media (max-width: 1100px) {
+  .shell-split { grid-template-columns: 1fr; }
+  .sidebar { position: static; }
+
   .layout,
   .hero,
   .stats-grid,

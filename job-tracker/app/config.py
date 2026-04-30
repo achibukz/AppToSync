@@ -40,8 +40,10 @@ PARSER_MODEL_CHOICES = [
 DEFAULT_PARSER_CHOICE = "gemini:gemini-2.5-flash-lite"
 
 # Gmail OAuth and polling settings.
+import os
+
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-GMAIL_REDIRECT_URI = "http://127.0.0.1:3000/gmail/callback"
+GMAIL_REDIRECT_URI = os.environ.get("GMAIL_REDIRECT_URI", "http://127.0.0.1:3000/gmail/callback")
 GMAIL_SYNC_INTERVAL_MINUTES = 15
 GMAIL_POLL_INTERVAL_SECONDS = 60
 

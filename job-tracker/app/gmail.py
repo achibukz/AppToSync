@@ -57,11 +57,26 @@ def gmail_is_configured() -> bool:
     return bool(os.getenv("GMAIL_CLIENT_ID") and os.getenv("GMAIL_CLIENT_SECRET"))
 
 
-def get_gmail_status(app: Flask) -> dict[str, Any]:
-    """Return the current Gmail connection and sync status."""
+def clear_gmail_sync_error(app: Flask, user_id: int) -> None:
+    """Clear stored sync error so it doesn't persist across page loads."""
     connection = connect_db(app)
     try:
-        row = connection.execute("SELECT * FROM gmail_connections WHERE id = 1").fetchone()
+        connection.execute(
+            "UPDATE gmail_tokens SET last_sync_error = NULL WHERE user_id = ?",
+            (user_id,),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def get_gmail_status(app: Flask, user_id: int) -> dict[str, Any]:
+    """Return the current Gmail connection and sync status for a user."""
+    connection = connect_db(app)
+    try:
+        row = connection.execute(
+            "SELECT * FROM gmail_tokens WHERE user_id = ?", (user_id,)
+        ).fetchone()
         configured = gmail_is_configured()
         if row is None:
             interval = int(os.getenv("GMAIL_SYNC_INTERVAL_MINUTES", GMAIL_SYNC_INTERVAL_MINUTES))
@@ -116,8 +131,9 @@ def finish_gmail_authorization(
     authorization_response: str,
     state: str | None,
     code_verifier: str | None,
+    user_id: int,
 ) -> dict[str, Any]:
-    """Complete the Gmail OAuth authorization flow and store tokens."""
+    """Complete the Gmail OAuth authorization flow and store tokens for a user."""
     if Flow is None or Credentials is None:
         return {"ok": False, "error": "Gmail OAuth dependencies are not installed."}
 
@@ -142,9 +158,10 @@ def finish_gmail_authorization(
 
     connection = connect_db(app)
     try:
-        _save_gmail_connection(
+        _save_gmail_token(
             connection,
             credentials,
+            user_id=user_id,
             connected_email=profile_email,
             connected_at=utc_now(),
             last_sync_error=None,
@@ -156,11 +173,11 @@ def finish_gmail_authorization(
     return {"ok": True, "email": profile_email}
 
 
-def disconnect_gmail(app: Flask) -> None:
-    """Remove stored Gmail credentials and sync state."""
+def disconnect_gmail(app: Flask, user_id: int) -> None:
+    """Remove stored Gmail credentials for a user."""
     connection = connect_db(app)
     try:
-        connection.execute("DELETE FROM gmail_connections WHERE id = 1")
+        connection.execute("DELETE FROM gmail_tokens WHERE user_id = ?", (user_id,))
         connection.commit()
     finally:
         connection.close()
@@ -169,69 +186,47 @@ def disconnect_gmail(app: Flask) -> None:
 def sync_gmail_messages(
     app: Flask,
     *,
+    user_id: int,
     parser_provider: str | None = None,
     gemini_model: str | None = None,
     groq_model: str | None = None,
 ) -> dict[str, Any]:
-    """Fetch new Gmail messages and convert them into applications."""
+    """Fetch new Gmail messages and convert them into applications for a user."""
     connection = connect_db(app)
     try:
-        row = connection.execute("SELECT * FROM gmail_connections WHERE id = 1").fetchone()
+        row = connection.execute(
+            "SELECT * FROM gmail_tokens WHERE user_id = ?", (user_id,)
+        ).fetchone()
         if row is None:
-            return {
-                "ok": False,
-                "error": "Connect Gmail before syncing.",
-                "created": 0,
-                "updated": 0,
-                "skipped": 0,
-            }
+            return {"ok": False, "error": "Connect Gmail before syncing.", "created": 0, "updated": 0, "skipped": 0}
 
         credentials = _credentials_from_row(row)
         if credentials is None:
-            return {
-                "ok": False,
-                "error": "Gmail OAuth dependencies are not installed.",
-                "created": 0,
-                "updated": 0,
-                "skipped": 0,
-            }
+            return {"ok": False, "error": "Gmail OAuth dependencies are not installed.", "created": 0, "updated": 0, "skipped": 0}
 
-        refresh_error = _refresh_credentials_if_needed(connection, credentials)
+        refresh_error = _refresh_credentials_if_needed(connection, credentials, user_id)
         if refresh_error:
             connection.execute(
-                "UPDATE gmail_connections SET last_sync_error = ?, updated_at = ? WHERE id = 1",
-                (refresh_error, utc_now()),
+                "UPDATE gmail_tokens SET last_sync_error = ?, updated_at = ? WHERE user_id = ?",
+                (refresh_error, utc_now(), user_id),
             )
             connection.commit()
-            return {
-                "ok": False,
-                "error": refresh_error,
-                "created": 0,
-                "updated": 0,
-                "skipped": 0,
-            }
+            return {"ok": False, "error": refresh_error, "created": 0, "updated": 0, "skipped": 0}
 
         service = _build_gmail_service(credentials)
         if service is None:
-            return {
-                "ok": False,
-                "error": "Gmail API dependencies are not installed.",
-                "created": 0,
-                "updated": 0,
-                "skipped": 0,
-            }
+            return {"ok": False, "error": "Gmail API dependencies are not installed.", "created": 0, "updated": 0, "skipped": 0}
 
         sync_interval_minutes = int(row["sync_interval_minutes"] or GMAIL_SYNC_INTERVAL_MINUTES)
         since_reference = row["last_sync_at"] or row["connected_at"]
         since_epoch = _reference_epoch(since_reference, sync_interval_minutes)
-        query = f"in:anywhere after:{since_epoch}"
+        gmail_query = f"in:anywhere after:{since_epoch}"
         now = utc_now()
 
         fetched = 0
         latest_error: str | None = None
 
-        # Step 1: fetch new Gmail messages and store them in the parsed_emails queue.
-        for message_id in _list_message_ids(service, query):
+        for message_id in _list_message_ids(service, gmail_query):
             try:
                 message = _get_message(service, message_id)
                 inserted = upsert_email_record(
@@ -241,22 +236,22 @@ def sync_gmail_messages(
                     from_address=_header_value(message, "from"),
                     subject=_header_value(message, "subject"),
                     body_text=_message_to_text(message),
+                    user_id=user_id,
                 )
                 if inserted:
                     fetched += 1
-            except Exception as exc:  # pragma: no cover - defensive sync guard
+            except Exception as exc:  # pragma: no cover
                 latest_error = str(exc)
                 continue
 
         connection.commit()
 
-        # Step 2: parse all paused emails (newly fetched + previously failed).
         _provider = (parser_provider or os.getenv("PARSER_PROVIDER") or DEFAULT_PARSER_PROVIDER).strip().lower()
         _gemini = (gemini_model or os.getenv("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL).strip()
         _groq = (groq_model or os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL).strip()
 
         parsed_count, updated, pending_review, paused, not_job, parse_error, auto_updated_names = _parse_pending_emails(
-            connection, parser_provider=_provider, gemini_model=_gemini, groq_model=_groq
+            connection, user_id=user_id, parser_provider=_provider, gemini_model=_gemini, groq_model=_groq
         )
         if parse_error:
             latest_error = parse_error
@@ -265,11 +260,11 @@ def sync_gmail_messages(
 
         connection.execute(
             """
-            UPDATE gmail_connections
+            UPDATE gmail_tokens
             SET last_sync_at = ?, last_sync_error = ?, credentials_json = ?, updated_at = ?
-            WHERE id = 1
+            WHERE user_id = ?
             """,
-            (now, latest_error, credentials.to_json(), now),
+            (now, latest_error, credentials.to_json(), now, user_id),
         )
         connection.commit()
         return {
@@ -280,7 +275,6 @@ def sync_gmail_messages(
             "pending_review": pending_review,
             "paused": paused,
             "not_job": not_job,
-            # Legacy fields for callers that haven't been updated.
             "created": 0,
             "skipped": not_job + paused,
             "error": latest_error,
@@ -295,6 +289,7 @@ def retry_parse_email(
     app: Flask,
     gmail_message_id: str,
     *,
+    user_id: int,
     parser_provider: str | None = None,
     gemini_model: str | None = None,
     groq_model: str | None = None,
@@ -317,7 +312,7 @@ def retry_parse_email(
         _provider = (parser_provider or os.getenv("PARSER_PROVIDER") or DEFAULT_PARSER_PROVIDER).strip().lower()
         _gemini = (gemini_model or os.getenv("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL).strip()
         _groq = (groq_model or os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL).strip()
-        _parse_pending_emails(connection, parser_provider=_provider, gemini_model=_gemini, groq_model=_groq)  # names unused in retry path
+        _parse_pending_emails(connection, user_id=user_id, parser_provider=_provider, gemini_model=_gemini, groq_model=_groq)
         connection.commit()
 
         updated = fetch_email(connection, gmail_message_id) or {}
@@ -333,6 +328,7 @@ def retry_parse_email(
 def _parse_pending_emails(
     connection,
     *,
+    user_id: int,
     parser_provider: str,
     gemini_model: str,
     groq_model: str,
@@ -349,7 +345,7 @@ def _parse_pending_emails(
     latest_error: str | None = None
     auto_updated_names: list[str] = []
 
-    for record in fetch_emails_needing_parse(connection):
+    for record in fetch_emails_needing_parse(connection, user_id):
         message_id = record["gmail_message_id"]
         body = record.get("body_text") or ""
         sender = record.get("from_address") or ""
@@ -390,12 +386,12 @@ def _parse_pending_emails(
             continue
 
         # Job-related: try to route to an existing application.
-        target_id = match_application_by_sender(connection, sender)
+        target_id = match_application_by_sender(connection, sender, user_id=user_id)
         target = fetch_application_by_id(connection, target_id) if target_id else None
 
         if target is None and company and role:
             cleaned = clean_company(company)
-            target = find_fuzzy_application(connection, cleaned, role)
+            target = find_fuzzy_application(connection, cleaned, role, user_id=user_id)
 
         if target is not None:
             new_status = _choose_status(target.get("status"), parsed_status_value)
@@ -467,15 +463,26 @@ def start_gmail_polling(app: Flask) -> None:
 
 
 def _gmail_poll_loop(app: Flask) -> None:
-    """Background loop that polls Gmail when the sync interval has elapsed."""
+    """Background loop that polls Gmail for all connected users."""
     while True:
         try:
-            status = get_gmail_status(app)
-            if status["connected"]:
-                reference_time = status["last_sync_at"] or status["connected_at"]
-                due_at = _parse_iso_time(reference_time) + timedelta(minutes=status["sync_interval_minutes"])
-                if datetime.now(timezone.utc) >= due_at:
-                    sync_gmail_messages(app)
+            connection = connect_db(app)
+            try:
+                rows = connection.execute("SELECT user_id FROM gmail_tokens").fetchall()
+                user_ids = [row["user_id"] for row in rows]
+            finally:
+                connection.close()
+
+            for uid in user_ids:
+                try:
+                    status = get_gmail_status(app, uid)
+                    if status["connected"]:
+                        reference_time = status["last_sync_at"] or status["connected_at"]
+                        due_at = _parse_iso_time(reference_time) + timedelta(minutes=status["sync_interval_minutes"])
+                        if datetime.now(timezone.utc) >= due_at:
+                            sync_gmail_messages(app, user_id=uid)
+                except Exception:
+                    pass
         except Exception:
             pass
         time.sleep(GMAIL_POLL_INTERVAL_SECONDS)
@@ -499,27 +506,30 @@ def _client_config() -> dict[str, Any] | None:
     }
 
 
-def _save_gmail_connection(
+def _save_gmail_token(
     connection,
     credentials,
     *,
+    user_id: int,
     connected_email: str | None,
     connected_at: str,
     last_sync_error: str | None,
 ) -> None:
     timestamp = utc_now()
-    existing = connection.execute("SELECT created_at, connected_at, last_sync_at FROM gmail_connections WHERE id = 1").fetchone()
+    existing = connection.execute(
+        "SELECT created_at, connected_at, last_sync_at FROM gmail_tokens WHERE user_id = ?", (user_id,)
+    ).fetchone()
     created_at = existing["created_at"] if existing else timestamp
     connected_at_value = connected_at or (existing["connected_at"] if existing else timestamp)
     last_sync_at = existing["last_sync_at"] if existing else None
 
     connection.execute(
         """
-        INSERT INTO gmail_connections (
-            id, credentials_json, connected_email, connected_at, last_sync_at,
+        INSERT INTO gmail_tokens (
+            user_id, credentials_json, connected_email, connected_at, last_sync_at,
             last_sync_error, sync_interval_minutes, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
+        ON CONFLICT(user_id) DO UPDATE SET
             credentials_json = excluded.credentials_json,
             connected_email = excluded.connected_email,
             connected_at = excluded.connected_at,
@@ -529,7 +539,7 @@ def _save_gmail_connection(
             updated_at = excluded.updated_at
         """,
         (
-            1,
+            user_id,
             credentials.to_json(),
             connected_email,
             connected_at_value,
@@ -542,7 +552,7 @@ def _save_gmail_connection(
     )
 
 
-def _refresh_credentials_if_needed(connection, credentials) -> str | None:
+def _refresh_credentials_if_needed(connection, credentials, user_id: int) -> str | None:
     if Request is None:
         return "Gmail OAuth dependencies are not installed."
     if getattr(credentials, "valid", False) and not getattr(credentials, "expired", False):
@@ -556,8 +566,8 @@ def _refresh_credentials_if_needed(connection, credentials) -> str | None:
         return f"Gmail token refresh failed: {exc}"
 
     connection.execute(
-        "UPDATE gmail_connections SET credentials_json = ?, updated_at = ? WHERE id = 1",
-        (credentials.to_json(), utc_now()),
+        "UPDATE gmail_tokens SET credentials_json = ?, updated_at = ? WHERE user_id = ?",
+        (credentials.to_json(), utc_now(), user_id),
     )
     connection.commit()
     return None

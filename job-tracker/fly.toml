@@ -1,0 +1,24 @@
+app = "apptosync"
+primary_region = "iad"
+
+[build]
+
+[env]
+  PORT = "8080"
+  GMAIL_AUTO_POLL = "false"
+  PARSER_PROVIDER = "gemini"
+
+[[mounts]]
+  source = "apptosync_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  min_machines_running = 1
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256

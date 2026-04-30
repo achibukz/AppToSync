@@ -8,6 +8,28 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+      .toast {
+        position: fixed;
+        bottom: 1.5rem;
+        right: 1.5rem;
+        padding: 0.75rem 1.25rem;
+        border-radius: 6px;
+        max-width: 420px;
+        font-size: 0.875rem;
+        line-height: 1.5;
+        opacity: 0;
+        transform: translateY(8px);
+        transition: opacity 0.2s, transform 0.2s;
+        z-index: 9999;
+        pointer-events: none;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      }
+      .toast.visible { opacity: 1; transform: translateY(0); }
+      .toast-success { background: #16a34a; color: #fff; }
+      .toast-error   { background: #dc2626; color: #fff; }
+      .sync-btn-loading { opacity: 0.6; cursor: not-allowed; }
+    </style>
   </head>
   <body>
     <div class="backdrop-grid" aria-hidden="true"></div>
@@ -65,10 +87,10 @@
         </section>
 
         <section class="stats-grid">
-          <article class="stat card"><span>Total roles tracked</span><strong>{{ stats.total }}</strong></article>
-          <article class="stat card"><span>Active pipeline</span><strong>{{ stats.active }}</strong></article>
-          <article class="stat card"><span>Interviews queued</span><strong>{{ stats.interviews }}</strong></article>
-          <article class="stat card"><span>Needs follow-up</span><strong>{{ stats.overdue }}</strong></article>
+          <article class="stat card"><span>Total roles tracked</span><strong id="stat-total">{{ stats.total }}</strong></article>
+          <article class="stat card"><span>Active pipeline</span><strong id="stat-active">{{ stats.active }}</strong></article>
+          <article class="stat card"><span>Interviews queued</span><strong id="stat-interviews">{{ stats.interviews }}</strong></article>
+          <article class="stat card"><span>Needs follow-up</span><strong id="stat-overdue">{{ stats.overdue }}</strong></article>
         </section>
       </aside>
 
@@ -428,11 +450,13 @@
             </label>
             <label>
               <span>Source</span>
-              <select name="source">
+              <select id="source-select-field">
                 {% for option in source_options %}
                 <option value="{{ option }}">{{ option }}</option>
                 {% endfor %}
               </select>
+              <input type="text" id="source-custom-field" placeholder="Specify source…" style="display:none; margin-top:0.35rem;">
+              <input type="hidden" name="source" id="source-value-field" value="LinkedIn">
             </label>
             <label>
               <span>Status</span>
@@ -490,6 +514,13 @@
       </div>
     </main>
 
+    <footer class="topbar">
+      <span class="topbar-email">{{ current_user.email }}</span>
+      <form method="post" action="{{ url_for('logout_route') }}">
+        <button class="button secondary topbar-logout" type="submit">Sign out</button>
+      </form>
+    </footer>
+
     <script>
       // Tab switching
       const tabBtns = document.querySelectorAll('.tab-btn');
@@ -504,6 +535,9 @@
         });
       });
 
+      // Move all status dropdowns to <body> so iOS Safari overflow-x:auto doesn't clip them
+      document.querySelectorAll('.status-dropdown').forEach(d => document.body.appendChild(d));
+
       // Modal management
       const modal = document.getElementById('app-modal');
       const addBtn = document.getElementById('add-app-btn');
@@ -513,6 +547,48 @@
       const statusOptions = {{ status_options | tojson }};
       const sourceOptions = {{ source_options | tojson }};
       const statusStyles = {{ status_styles | tojson }};
+
+      // ── Source field with "Other" free-text ──────────────────────────────
+      const sourceSelectField = document.getElementById('source-select-field');
+      const sourceCustomField = document.getElementById('source-custom-field');
+      const sourceValueField  = document.getElementById('source-value-field');
+
+      function setSourceValue(value) {
+        if (sourceOptions.includes(value)) {
+          sourceSelectField.value = value;
+          sourceCustomField.style.display = 'none';
+          sourceCustomField.value = '';
+          sourceValueField.value = value;
+        } else {
+          sourceSelectField.value = 'Other';
+          sourceCustomField.style.display = '';
+          sourceCustomField.value = value || '';
+          sourceValueField.value = value || 'Other';
+        }
+      }
+
+      sourceSelectField.addEventListener('change', () => {
+        if (sourceSelectField.value === 'Other') {
+          sourceCustomField.style.display = '';
+          sourceValueField.value = sourceCustomField.value.trim() || 'Other';
+          sourceCustomField.focus();
+        } else {
+          sourceCustomField.style.display = 'none';
+          sourceCustomField.value = '';
+          sourceValueField.value = sourceSelectField.value;
+        }
+      });
+
+      sourceCustomField.addEventListener('input', () => {
+        sourceValueField.value = sourceCustomField.value.trim() || 'Other';
+      });
+
+      appForm.addEventListener('submit', () => {
+        if (sourceSelectField.value === 'Other') {
+          sourceValueField.value = sourceCustomField.value.trim() || 'Other';
+        }
+      });
+      // ─────────────────────────────────────────────────────────────────────
 
       // ── Tag input for email watchers ─────────────────────────────────────
       let watcherTags = [];
@@ -577,7 +653,7 @@
         appForm.querySelector('input[name="applied_date"]').value = '{{ today }}';
         appForm.querySelector('input[name="salary_currency"]').value = '{{ default_currency }}';
         appForm.querySelector('select[name="status"]').value = 'Applied';
-        appForm.querySelector('select[name="source"]').value = 'LinkedIn';
+        setSourceValue('LinkedIn');
         appForm.querySelector('select[name="source_type"]').value = 'manual';
         watcherTags = [];
         renderTags();
@@ -612,7 +688,7 @@
             appForm.querySelector('input[name="company"]').value = app.company;
             appForm.querySelector('input[name="role"]').value = app.role;
             appForm.querySelector('input[name="job_url"]').value = app.job_url || '';
-            appForm.querySelector('select[name="source"]').value = app.source || 'Other';
+            setSourceValue(app.source || 'Other');
             appForm.querySelector('select[name="status"]').value = app.status || 'Applied';
             appForm.querySelector('input[name="applied_date"]').value = app.applied_date;
             appForm.querySelector('input[name="follow_up_date"]').value = app.follow_up_date || '';
@@ -661,7 +737,7 @@
           appForm.querySelector('input[name="applied_date"]').value = btn.dataset.appliedDate || '{{ today }}';
           appForm.querySelector('input[name="salary_currency"]').value = '{{ default_currency }}';
           appForm.querySelector('select[name="status"]').value = btn.dataset.status || 'Applied';
-          appForm.querySelector('select[name="source"]').value = 'Other';
+          setSourceValue('Other');
           appForm.querySelector('select[name="source_type"]').value = 'gmail';
 
           watcherTags = [];
@@ -678,34 +754,33 @@
           const appId = badge.dataset.id;
           const dropdown = document.querySelector(`.status-dropdown[data-id="${appId}"]`);
           const wasActive = dropdown.classList.contains('active');
-          
+
           // Close all other dropdowns
           document.querySelectorAll('.status-dropdown').forEach(d => {
             d.classList.remove('active');
           });
 
           if (!wasActive) {
-            // Measure available space
             const badgeRect = badge.getBoundingClientRect();
             const spaceBelow = window.innerHeight - badgeRect.bottom;
-            const spaceAbove = badgeRect.top;
-            
-            // Show dropdown temporarily to measure its height
-            dropdown.style.visibility = 'hidden';
-            dropdown.style.display = 'block';
-            const dropdownHeight = dropdown.offsetHeight;
-            dropdown.style.display = ''; // Clear inline display
-            dropdown.style.visibility = ''; // Clear inline visibility
 
-            // Determine if it should open up or down
-            // Open up if not enough space below AND more space above than below
-            if (spaceBelow < dropdownHeight + 10 && spaceAbove > spaceBelow) {
-              dropdown.classList.add('open-up');
+            // Make display:block but invisible so we can measure height
+            dropdown.style.visibility = 'hidden';
+            dropdown.style.left = badgeRect.left + 'px';
+            dropdown.style.top = '0';
+            dropdown.style.bottom = '';
+            dropdown.classList.add('active');
+            const dropdownHeight = dropdown.offsetHeight;
+
+            // Set correct vertical position before revealing
+            if (spaceBelow < dropdownHeight + 10) {
+              dropdown.style.top = '';
+              dropdown.style.bottom = (window.innerHeight - badgeRect.top + 4) + 'px';
             } else {
-              dropdown.classList.remove('open-up');
+              dropdown.style.top = (badgeRect.bottom + 4) + 'px';
             }
 
-            dropdown.classList.add('active');
+            dropdown.style.visibility = '';
           }
         });
       });
@@ -724,33 +799,102 @@
         });
       });
 
-      // Status option click - change status
+      // Toast notification
+      function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('visible'));
+        setTimeout(() => {
+          toast.classList.remove('visible');
+          setTimeout(() => toast.remove(), 300);
+        }, 4000);
+      }
+
+      // Status option click - change status without page reload
+      const STATUS_COLORS = ['blue','yellow','orange','purple','green','red','gray'];
+      const ACTIVE_STATUSES = new Set(['Applied','Interview Scheduled','Technical Test','Final Interview']);
+
       document.querySelectorAll('.status-option').forEach(option => {
         option.addEventListener('click', (e) => {
-          const appId = e.target.closest('.status-dropdown').dataset.id;
-          const newStatus = e.target.dataset.status;
-          
-          // Update via API
+          const dropdown = e.target.closest('.status-dropdown');
+          const appId = dropdown.dataset.id;
+          const badge = document.querySelector(`.status-badge[data-id="${appId}"]`);
+          const oldStatus = badge.dataset.status;
+          const newStatus = e.target.closest('.status-option').dataset.status;
+
+          if (oldStatus === newStatus) {
+            dropdown.classList.remove('active');
+            return;
+          }
+
           fetch(`/api/applications/${appId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: newStatus })
           })
           .then(res => res.json())
-          .then(app => {
-            // Update the badge text and color
-            const badge = document.querySelector(`.status-badge[data-id="${appId}"]`);
+          .then(() => {
+            // Update badge
+            badge.classList.remove(...STATUS_COLORS);
+            badge.classList.add(statusStyles[newStatus] || 'gray');
             badge.textContent = newStatus;
             badge.dataset.status = newStatus;
-            
-            // Close dropdown
-            document.querySelector(`.status-dropdown[data-id="${appId}"]`).classList.remove('active');
-            
-            // Redirect to home to update colors and stats without re-parsing
-            window.location.href = '/';
-          });
+
+            // Update active option in dropdown
+            dropdown.querySelectorAll('.status-option').forEach(o => {
+              o.classList.toggle('active', o.dataset.status === newStatus);
+            });
+
+            // Update stats
+            const activeEl = document.getElementById('stat-active');
+            const interviewsEl = document.getElementById('stat-interviews');
+            if (activeEl) {
+              let n = parseInt(activeEl.textContent);
+              if (ACTIVE_STATUSES.has(oldStatus) && !ACTIVE_STATUSES.has(newStatus)) n--;
+              else if (!ACTIVE_STATUSES.has(oldStatus) && ACTIVE_STATUSES.has(newStatus)) n++;
+              activeEl.textContent = n;
+            }
+            if (interviewsEl) {
+              let n = parseInt(interviewsEl.textContent);
+              if (oldStatus === 'Interview Scheduled' && newStatus !== 'Interview Scheduled') n--;
+              else if (oldStatus !== 'Interview Scheduled' && newStatus === 'Interview Scheduled') n++;
+              interviewsEl.textContent = n;
+            }
+
+            dropdown.classList.remove('active');
+            showToast(`Status updated to "${newStatus}"`);
+          })
+          .catch(() => showToast('Failed to update status.', 'error'));
         });
       });
+
+      // Sync now — intercept form, use fetch, show toast
+      const syncForm = document.querySelector('.sync-form');
+      if (syncForm) {
+        syncForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const btn = syncForm.querySelector('button[type="submit"]');
+          const choice = syncForm.querySelector('select[name="parser_choice"]').value;
+          btn.disabled = true;
+          btn.classList.add('sync-btn-loading');
+          const originalText = btn.textContent;
+          btn.textContent = 'Syncing…';
+
+          try {
+            await fetch('/api/gmail/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ parser_choice: choice })
+            });
+          } catch {
+            // ignore network errors — reload will show server flash message
+          } finally {
+            window.location.reload();
+          }
+        });
+      }
 
       // Filter button toggle
       const filterBtn = document.getElementById('filter-btn');
