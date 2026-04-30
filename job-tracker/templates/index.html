@@ -717,24 +717,23 @@
             const badgeRect = badge.getBoundingClientRect();
             const spaceBelow = window.innerHeight - badgeRect.bottom;
 
-            // Position with fixed coords so it escapes any overflow container
-            dropdown.style.left = badgeRect.left + 'px';
-            dropdown.style.top = '';
-            dropdown.style.bottom = '';
-
-            // Measure height while hidden
+            // Make display:block but invisible so we can measure height
             dropdown.style.visibility = 'hidden';
+            dropdown.style.left = badgeRect.left + 'px';
+            dropdown.style.top = '0';
+            dropdown.style.bottom = '';
             dropdown.classList.add('active');
             const dropdownHeight = dropdown.offsetHeight;
-            dropdown.style.visibility = '';
 
+            // Set correct vertical position before revealing
             if (spaceBelow < dropdownHeight + 10) {
               dropdown.style.top = '';
               dropdown.style.bottom = (window.innerHeight - badgeRect.top + 4) + 'px';
             } else {
               dropdown.style.top = (badgeRect.bottom + 4) + 'px';
-              dropdown.style.bottom = '';
             }
+
+            dropdown.style.visibility = '';
           }
         });
       });
