@@ -129,6 +129,11 @@ def _build_parse_prompt(email_text: str) -> str:
         "Extract structured job application details from this email. "
         "Return only valid JSON with these keys: is_job_related (boolean), company (string|null), "
         "role (string|null), status (string|null), interview_date (string|null, ISO format), "
+        "applied_date (string|null, ISO format — the date the application was submitted; "
+        "only populate if status is Applied, otherwise null), "
+        "source (string|null — exactly one of: LinkedIn, Indeed, Prosple, Direct, Other; "
+        "infer from sender address domain, URLs in the email, or explicit platform mentions; "
+        "null if not determinable), "
         "confidence (number), extracted_by (string), reasoning_summary (string), field_explanations (object). "
         "Use status values from: Applied, Interview Scheduled, Technical Test, Final Interview, "
         "Offer Received, Rejected, Ghosted. "
@@ -175,6 +180,8 @@ def groq_parse_job_email_with_error(
         "role": parsed.get("role"),
         "status": parsed.get("status"),
         "interview_date": parsed.get("interview_date"),
+        "applied_date": parsed.get("applied_date"),
+        "source": parsed.get("source"),
         "confidence": parsed.get("confidence", 0.0),
         "extracted_by": "groq",
         "reasoning_summary": parsed.get("reasoning_summary"),
@@ -243,6 +250,8 @@ def gemini_parse_job_email_with_error(
         "role": parsed.get("role"),
         "status": parsed.get("status"),
         "interview_date": parsed.get("interview_date"),
+        "applied_date": parsed.get("applied_date"),
+        "source": parsed.get("source"),
         "confidence": parsed.get("confidence", 0.0),
         "extracted_by": parsed.get("extracted_by", "gemini"),
         "reasoning_summary": parsed.get("reasoning_summary"),
@@ -277,6 +286,8 @@ def local_parse_job_email(email_text: str) -> dict[str, Any]:
     role = extract_role(text)
     status = detect_status(normalized)
     interview_date = extract_date(text)
+    source = detect_source(normalized)
+    applied_date = extract_date(text) if status == "Applied" else None
 
     confidence = 0.54
     if company:
@@ -294,6 +305,8 @@ def local_parse_job_email(email_text: str) -> dict[str, Any]:
         "role": role,
         "status": status,
         "interview_date": interview_date,
+        "applied_date": applied_date,
+        "source": source,
         "confidence": round(min(confidence, 0.98), 2),
         "extracted_by": "heuristic",
     }
@@ -344,6 +357,17 @@ def detect_status(text: str) -> str:
         if any(keyword in text for keyword in keywords):
             return status
     return "Applied"
+
+
+def detect_source(text: str) -> str | None:
+    """Detect job platform from email text using keyword/domain matching."""
+    if "linkedin.com" in text or " linkedin " in text:
+        return "LinkedIn"
+    if "indeed.com" in text or " indeed " in text:
+        return "Indeed"
+    if "prosple.com" in text or " prosple " in text:
+        return "Prosple"
+    return None
 
 
 def extract_company(text: str) -> str | None:

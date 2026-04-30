@@ -117,6 +117,8 @@ def update_parse_success(
     parsed_status: str | None,
     parsed_confidence: float | None,
     parsed_reasoning: str | None,
+    parsed_source: str | None = None,
+    parsed_applied_date: str | None = None,
     application_id: str | None = None,
 ) -> None:
     if parse_status not in PARSE_STATUSES:
@@ -135,6 +137,8 @@ def update_parse_success(
                parsed_status = ?,
                parsed_confidence = ?,
                parsed_reasoning = ?,
+               parsed_source = ?,
+               parsed_applied_date = ?,
                application_id = COALESCE(?, application_id),
                updated_at = ?
          WHERE gmail_message_id = ?
@@ -148,6 +152,8 @@ def update_parse_success(
             parsed_status,
             parsed_confidence,
             parsed_reasoning,
+            parsed_source,
+            parsed_applied_date,
             application_id,
             timestamp,
             gmail_message_id,
