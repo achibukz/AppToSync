@@ -5,6 +5,7 @@ from typing import Any
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 
+from app.auth import create_user, get_user_by_email, get_user_by_id, login_required, verify_password
 from app.extensions import limiter
 from app.config import (
     DEFAULT_PARSER_CHOICE,
@@ -47,7 +48,6 @@ from app.validators import form_payload, normalize_payload
 
 
 def _email_note(record: dict[str, Any]) -> str:
-    """Build the seed note for an application accepted from a parsed email."""
     parts = ["Gmail sync"]
     subject = record.get("subject")
     if subject:
@@ -59,29 +59,16 @@ def _email_note(record: dict[str, Any]) -> str:
 
 
 def build_stats(applications: list[dict[str, Any]]) -> dict[str, int]:
-    """Build statistics from applications list.
-    
-    Args:
-        applications: List of application dictionaries
-        
-    Returns:
-        Dictionary with total, active, interviews, and overdue counts
-    """
     active_statuses = {"Applied", "Interview Scheduled", "Technical Test", "Final Interview"}
     return {
         "total": len(applications),
-        "active": sum(1 for application in applications if application["status"] in active_statuses),
-        "interviews": sum(1 for application in applications if application["status"] == "Interview Scheduled"),
-        "overdue": sum(1 for application in applications if application["is_overdue"]),
+        "active": sum(1 for a in applications if a["status"] in active_statuses),
+        "interviews": sum(1 for a in applications if a["status"] == "Interview Scheduled"),
+        "overdue": sum(1 for a in applications if a["is_overdue"]),
     }
 
 
-def _render_dashboard(
-    app: Flask,
-    *,
-    active_tab: str = "dashboard",
-) -> str:
-    """Render the dashboard with shared data."""
+def _render_dashboard(app: Flask, user_id: int, *, active_tab: str = "dashboard") -> str:
     filters = {
         "status": request.args.get("status", "").strip(),
         "source": request.args.get("source", "").strip(),
@@ -91,15 +78,21 @@ def _render_dashboard(
     order = request.args.get("order", "desc").strip()
     edit_id = request.args.get("edit", "").strip() or None
 
-    applications = fetch_applications(app, filters, sort_by=sort_by, order=order)
-    editing_application = fetch_application(app, edit_id) if edit_id else None
+    applications = fetch_applications(app, filters, sort_by=sort_by, order=order, user_id=user_id)
+    editing_application = fetch_application(app, edit_id, user_id=user_id) if edit_id else None
     stats = build_stats(applications)
-    gmail_status = get_gmail_status(app)
+    gmail_status = get_gmail_status(app, user_id)
 
     connection = connect_db(app)
     try:
-        pending_emails = fetch_pending_review(connection)
-        paused_emails = fetch_paused(connection)
+        pending_emails = fetch_pending_review(connection, user_id)
+        paused_emails = fetch_paused(connection, user_id)
+    finally:
+        connection.close()
+
+    connection = connect_db(app)
+    try:
+        current_user = get_user_by_id(connection, user_id)
     finally:
         connection.close()
 
@@ -123,32 +116,105 @@ def _render_dashboard(
         paused_emails=paused_emails,
         parser_choices=[(v, label) for (v, label, _p, _m) in PARSER_MODEL_CHOICES],
         current_parser_choice=session.get("parser_choice", DEFAULT_PARSER_CHOICE),
+        current_user=current_user,
     )
 
 
 def register_routes(app: Flask) -> None:
-    """Register all Flask routes.
-    
-    Args:
-        app: Flask application instance
-    """
-    
+
+    # ==================== Auth Routes ====================
+
+    @app.get("/login")
+    def login_route() -> Any:
+        if "user_id" in session:
+            return redirect(url_for("dashboard"))
+        return render_template("login.html")
+
+    @app.post("/login")
+    @limiter.limit("10 per minute")
+    def login_post() -> Any:
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        connection = connect_db(app)
+        try:
+            user = get_user_by_email(connection, email)
+        finally:
+            connection.close()
+
+        if user is None or not verify_password(user["password_hash"], password):
+            flash("Invalid email or password.", "error")
+            return render_template("login.html"), 401
+
+        session.clear()
+        session["user_id"] = user["id"]
+        return redirect(url_for("dashboard"))
+
+    @app.get("/register")
+    def register_route() -> Any:
+        if "user_id" in session:
+            return redirect(url_for("dashboard"))
+        return render_template("register.html")
+
+    @app.post("/register")
+    @limiter.limit("5 per minute")
+    def register_post() -> Any:
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        confirm = request.form.get("confirm_password", "")
+
+        if not email or not password:
+            flash("Email and password are required.", "error")
+            return render_template("register.html"), 400
+        if len(password) < 8:
+            flash("Password must be at least 8 characters.", "error")
+            return render_template("register.html"), 400
+        if password != confirm:
+            flash("Passwords do not match.", "error")
+            return render_template("register.html"), 400
+
+        connection = connect_db(app)
+        try:
+            if get_user_by_email(connection, email):
+                flash("An account with that email already exists.", "error")
+                return render_template("register.html"), 400
+            create_user(connection, email, password)
+            connection.commit()
+            user = get_user_by_email(connection, email)
+        finally:
+            connection.close()
+
+        session.clear()
+        session["user_id"] = user["id"]
+        flash("Account created. Welcome!", "success")
+        return redirect(url_for("dashboard"))
+
+    @app.post("/logout")
+    def logout_route() -> Any:
+        session.clear()
+        return redirect(url_for("login_route"))
+
+    @app.get("/forgot-password")
+    def forgot_password_route() -> Any:
+        return render_template("forgot_password.html")
+
     # ==================== Web Routes ====================
-    
+
     @app.get("/")
+    @login_required
     def dashboard() -> str:
-        """Display the main dashboard with applications and filters."""
+        user_id: int = session["user_id"]
         tab = request.args.get("tab", "").strip().lower()
         active_tab = "emails" if tab == "emails" else "dashboard"
-        return _render_dashboard(app, active_tab=active_tab)
+        return _render_dashboard(app, user_id, active_tab=active_tab)
 
     @app.post("/applications")
+    @login_required
     def create_application_route() -> Any:
-        """Create a new application from form data."""
+        user_id: int = session["user_id"]
         connection = connect_db(app)
         try:
             payload = form_payload(request.form)
-            insert_application(connection, payload, utc_now())
+            insert_application(connection, payload, utc_now(), user_id)
             connection.commit()
             flash("Application created.", "success")
         except ValueError as exc:
@@ -158,12 +224,13 @@ def register_routes(app: Flask) -> None:
         return redirect(url_for("dashboard"))
 
     @app.post("/applications/<application_id>/update")
+    @login_required
     def update_application_route(application_id: str) -> Any:
-        """Update an existing application from form data."""
+        user_id: int = session["user_id"]
         connection = connect_db(app)
         try:
             payload = form_payload(request.form)
-            updated = update_application(connection, application_id, payload)
+            updated = update_application(connection, application_id, payload, user_id=user_id)
             if updated is not None:
                 patterns = request.form.getlist("watcher_patterns")
                 set_watchers_for_application(connection, application_id, patterns)
@@ -179,21 +246,23 @@ def register_routes(app: Flask) -> None:
         return redirect(url_for("dashboard"))
 
     @app.post("/applications/<application_id>/delete")
+    @login_required
     def delete_application_route(application_id: str) -> Any:
-        """Delete an application and its watchers."""
+        user_id: int = session["user_id"]
         connection = connect_db(app)
         try:
             delete_watchers_for_application(connection, application_id)
             connection.commit()
         finally:
             connection.close()
-        delete_application(app, application_id)
+        delete_application(app, application_id, user_id=user_id)
         flash("Application deleted.", "success")
         return redirect(url_for("dashboard"))
 
     @app.post("/emails/<message_id>/accept")
+    @login_required
     def accept_email_route(message_id: str) -> Any:
-        """Accept a queued email and create a new application from it."""
+        user_id: int = session["user_id"]
         connection = connect_db(app)
         try:
             record = fetch_email(connection, message_id)
@@ -231,7 +300,7 @@ def register_routes(app: Flask) -> None:
                 "gmail_message_id": message_id,
             }
             normalized = normalize_payload(payload)
-            created = insert_application(connection, normalized, utc_now())
+            created = insert_application(connection, normalized, utc_now(), user_id)
             mark_accepted(connection, message_id, created["id"])
             connection.commit()
             flash(f"Application created from email: {company} — {role}.", "success")
@@ -242,8 +311,8 @@ def register_routes(app: Flask) -> None:
         return redirect(url_for("dashboard", tab="emails"))
 
     @app.post("/emails/<message_id>/reject")
+    @login_required
     def reject_email_route(message_id: str) -> Any:
-        """Dismiss a queued email; it will not surface again."""
         connection = connect_db(app)
         try:
             mark_dismissed(connection, message_id)
@@ -254,9 +323,10 @@ def register_routes(app: Flask) -> None:
         return redirect(url_for("dashboard", tab="emails"))
 
     @app.post("/emails/<message_id>/retry")
+    @login_required
     def retry_email_route(message_id: str) -> Any:
-        """Force a paused email back through the Gemini parser."""
-        result = retry_parse_email(app, message_id)
+        user_id: int = session["user_id"]
+        result = retry_parse_email(app, message_id, user_id=user_id)
         if not result["ok"]:
             flash(result.get("error") or "Retry failed.", "error")
         elif result["parse_status"] == "paused":
@@ -266,8 +336,8 @@ def register_routes(app: Flask) -> None:
         return redirect(url_for("dashboard", tab="emails"))
 
     @app.get("/gmail/connect")
+    @login_required
     def gmail_connect_route() -> Any:
-        """Start the Gmail OAuth flow."""
         try:
             authorization_url, state, code_verifier = start_gmail_authorization()
         except ValueError as exc:
@@ -280,11 +350,12 @@ def register_routes(app: Flask) -> None:
         return redirect(authorization_url)
 
     @app.get("/gmail/callback")
+    @login_required
     def gmail_callback_route() -> Any:
-        """Complete the Gmail OAuth flow."""
+        user_id: int = session["user_id"]
         state = session.pop("gmail_oauth_state", None)
         code_verifier = session.pop("gmail_oauth_code_verifier", None)
-        result = finish_gmail_authorization(app, request.url, state, code_verifier)
+        result = finish_gmail_authorization(app, request.url, state, code_verifier, user_id)
         if result["ok"]:
             email_address = result.get("email") or "your Gmail account"
             flash(f"Gmail connected for {email_address}.", "success")
@@ -293,21 +364,24 @@ def register_routes(app: Flask) -> None:
         return redirect(url_for("dashboard"))
 
     @app.post("/gmail/disconnect")
+    @login_required
     def gmail_disconnect_route() -> Any:
-        """Disconnect Gmail and clear stored tokens."""
-        disconnect_gmail(app)
+        user_id: int = session["user_id"]
+        disconnect_gmail(app, user_id)
         flash("Gmail disconnected.", "success")
         return redirect(url_for("dashboard"))
 
     @app.get("/gmail/status")
+    @login_required
     def gmail_status_route() -> Any:
-        """Return Gmail connection status as JSON."""
-        return jsonify(get_gmail_status(app))
+        user_id: int = session["user_id"]
+        return jsonify(get_gmail_status(app, user_id))
 
     @app.post("/gmail/sync")
+    @login_required
     @limiter.limit("6 per minute")
     def gmail_sync_route() -> Any:
-        """Synchronize Gmail messages on demand."""
+        user_id: int = session["user_id"]
         choice = request.form.get("parser_choice", "").strip()
         choice_map = {v: (p, m) for (v, _label, p, m) in PARSER_MODEL_CHOICES}
         provider_arg: str | None = None
@@ -323,6 +397,7 @@ def register_routes(app: Flask) -> None:
                 groq_arg = mdl
         result = sync_gmail_messages(
             app,
+            user_id=user_id,
             parser_provider=provider_arg,
             gemini_model=gemini_arg,
             groq_model=groq_arg,
@@ -347,12 +422,12 @@ def register_routes(app: Flask) -> None:
 
     @app.get("/api/health")
     def health() -> Any:
-        """Health check endpoint."""
         return jsonify({"status": "ok", "service": "job-tracker"})
 
     @app.get("/api/applications")
+    @login_required
     def api_list_applications() -> Any:
-        """List all applications (with optional filtering)."""
+        user_id: int = session["user_id"]
         filters = {
             "status": request.args.get("status", "").strip(),
             "source": request.args.get("source", "").strip(),
@@ -360,37 +435,40 @@ def register_routes(app: Flask) -> None:
         }
         sort_by = request.args.get("sort_by", "applied_date").strip()
         order = request.args.get("order", "desc").strip()
-        return jsonify(fetch_applications(app, filters, sort_by=sort_by, order=order))
+        return jsonify(fetch_applications(app, filters, sort_by=sort_by, order=order, user_id=user_id))
 
     @app.post("/api/applications")
+    @login_required
     def api_create_application() -> Any:
-        """Create a new application from JSON payload."""
+        user_id: int = session["user_id"]
         payload = request.get_json(silent=True) or {}
         connection = connect_db(app)
         try:
             normalized = normalize_payload(payload)
-            created = insert_application(connection, normalized, utc_now())
+            created = insert_application(connection, normalized, utc_now(), user_id)
             connection.commit()
         finally:
             connection.close()
         return jsonify(created), 201
 
     @app.get("/api/applications/<application_id>")
+    @login_required
     def api_get_application(application_id: str) -> Any:
-        """Get a single application by ID."""
-        application = fetch_application(app, application_id)
+        user_id: int = session["user_id"]
+        application = fetch_application(app, application_id, user_id=user_id)
         if application is None:
             return jsonify({"error": "not found"}), 404
         return jsonify(application)
 
     @app.put("/api/applications/<application_id>")
+    @login_required
     def api_update_application(application_id: str) -> Any:
-        """Update an application from JSON payload."""
+        user_id: int = session["user_id"]
         payload = request.get_json(silent=True) or {}
         connection = connect_db(app)
         try:
             normalized = normalize_payload(payload, partial=True)
-            updated = update_application(connection, application_id, normalized, partial=True)
+            updated = update_application(connection, application_id, normalized, partial=True, user_id=user_id)
             connection.commit()
         finally:
             connection.close()
@@ -399,22 +477,23 @@ def register_routes(app: Flask) -> None:
         return jsonify(updated)
 
     @app.delete("/api/applications/<application_id>")
+    @login_required
     def api_delete_application(application_id: str) -> Any:
-        """Delete an application and its watchers."""
+        user_id: int = session["user_id"]
         connection = connect_db(app)
         try:
             delete_watchers_for_application(connection, application_id)
             connection.commit()
         finally:
             connection.close()
-        deleted = delete_application(app, application_id)
+        deleted = delete_application(app, application_id, user_id=user_id)
         if not deleted:
             return jsonify({"error": "not found"}), 404
         return jsonify({"success": True})
 
     @app.get("/api/applications/<application_id>/watchers")
+    @login_required
     def api_get_watchers(application_id: str) -> Any:
-        """Return the sender patterns registered for an application."""
         connection = connect_db(app)
         try:
             patterns = fetch_watchers_for_application(connection, application_id)
@@ -423,21 +502,35 @@ def register_routes(app: Flask) -> None:
         return jsonify(patterns)
 
     @app.get("/api/emails")
+    @login_required
     def api_list_emails() -> Any:
-        """Return parsed emails grouped by review state."""
+        user_id: int = session["user_id"]
         connection = connect_db(app)
         try:
             return jsonify({
-                "pending_review": fetch_pending_review(connection),
-                "paused": fetch_paused(connection),
+                "pending_review": fetch_pending_review(connection, user_id),
+                "paused": fetch_paused(connection, user_id),
             })
         finally:
             connection.close()
 
+    @app.get("/api/emails/<message_id>")
+    @login_required
+    def api_get_email(message_id: str) -> Any:
+        connection = connect_db(app)
+        try:
+            record = fetch_email(connection, message_id)
+        finally:
+            connection.close()
+        if record is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(record)
+
     @app.post("/api/gmail/sync")
+    @login_required
     @limiter.limit("6 per minute")
     def api_gmail_sync() -> Any:
-        """Synchronize Gmail messages on demand, returning JSON."""
+        user_id: int = session["user_id"]
         payload = request.get_json(silent=True) or {}
         choice = payload.get("parser_choice", "").strip()
         choice_map = {v: (p, m) for (v, _label, p, m) in PARSER_MODEL_CHOICES}
@@ -454,20 +547,9 @@ def register_routes(app: Flask) -> None:
                 groq_arg = mdl
         result = sync_gmail_messages(
             app,
+            user_id=user_id,
             parser_provider=provider_arg,
             gemini_model=gemini_arg,
             groq_model=groq_arg,
         )
         return jsonify(result)
-
-    @app.get("/api/emails/<message_id>")
-    def api_get_email(message_id: str) -> Any:
-        """Return a single parsed-email record."""
-        connection = connect_db(app)
-        try:
-            record = fetch_email(connection, message_id)
-        finally:
-            connection.close()
-        if record is None:
-            return jsonify({"error": "not found"}), 404
-        return jsonify(record)

@@ -1,13 +1,9 @@
 """Parsed-email queue CRUD.
 
-Each Gmail message that the sync pipeline encounters is stored as a row here.
-The row tracks the raw email metadata (sender/subject/body), the parser
-output, and where the email currently stands in the review queue.
-
 Status values:
 - paused          : fetched but not yet parsed (or parser failed; will retry)
-- pending_review  : parsed and job-related; would create a NEW application — awaiting accept/reject
-- auto_updated    : parsed and routed to an existing application (watcher or fuzzy match)
+- pending_review  : parsed and job-related; new application — awaiting accept/reject
+- auto_updated    : parsed and routed to an existing application
 - not_job         : parsed and not job-related; ignored
 - accepted        : user accepted; an application was created from this email
 - dismissed       : user rejected; never resurface
@@ -39,17 +35,17 @@ def upsert_email_record(
     from_address: str | None,
     subject: str | None,
     body_text: str | None,
+    user_id: int,
 ) -> bool:
-    """Insert a new email row. Returns True if inserted, False if it already existed."""
     timestamp = utc_now()
     cursor = connection.execute(
         """
         INSERT OR IGNORE INTO parsed_emails (
             gmail_message_id, received_at, from_address, subject, body_text,
-            parse_status, parse_attempts, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'paused', 0, ?, ?)
+            parse_status, parse_attempts, user_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'paused', 0, ?, ?, ?)
         """,
-        (gmail_message_id, received_at, from_address, subject, body_text, timestamp, timestamp),
+        (gmail_message_id, received_at, from_address, subject, body_text, user_id, timestamp, timestamp),
     )
     return cursor.rowcount > 0
 
@@ -62,28 +58,30 @@ def fetch_email(connection: sqlite3.Connection, gmail_message_id: str) -> dict[s
     return dict(row) if row else None
 
 
-def fetch_emails_needing_parse(connection: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Return all paused emails (i.e. those that should be parsed on the next sync)."""
+def fetch_emails_needing_parse(connection: sqlite3.Connection, user_id: int) -> list[dict[str, Any]]:
     rows = connection.execute(
-        "SELECT * FROM parsed_emails WHERE parse_status = 'paused' ORDER BY received_at ASC"
+        "SELECT * FROM parsed_emails WHERE parse_status = 'paused' AND user_id = ? ORDER BY received_at ASC",
+        (user_id,),
     ).fetchall()
     return [dict(row) for row in rows]
 
 
-def fetch_pending_review(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+def fetch_pending_review(connection: sqlite3.Connection, user_id: int) -> list[dict[str, Any]]:
     rows = connection.execute(
-        "SELECT * FROM parsed_emails WHERE parse_status = 'pending_review' ORDER BY received_at DESC"
+        "SELECT * FROM parsed_emails WHERE parse_status = 'pending_review' AND user_id = ? ORDER BY received_at DESC",
+        (user_id,),
     ).fetchall()
     return [dict(row) for row in rows]
 
 
-def fetch_paused(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+def fetch_paused(connection: sqlite3.Connection, user_id: int) -> list[dict[str, Any]]:
     rows = connection.execute(
         """
         SELECT * FROM parsed_emails
-         WHERE parse_status = 'paused' AND parse_attempts > 0
+         WHERE parse_status = 'paused' AND parse_attempts > 0 AND user_id = ?
          ORDER BY received_at DESC
-        """
+        """,
+        (user_id,),
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -93,7 +91,6 @@ def update_parse_failure(
     gmail_message_id: str,
     error: str,
 ) -> None:
-    """Record a parse attempt that failed (Gemini error). Keeps status=paused."""
     timestamp = utc_now()
     connection.execute(
         """
@@ -122,7 +119,6 @@ def update_parse_success(
     parsed_reasoning: str | None,
     application_id: str | None = None,
 ) -> None:
-    """Record a successful parse and the routing decision."""
     if parse_status not in PARSE_STATUSES:
         raise ValueError(f"Invalid parse_status: {parse_status}")
     timestamp = utc_now()
@@ -191,7 +187,6 @@ def mark_dismissed(connection: sqlite3.Connection, gmail_message_id: str) -> Non
 
 
 def mark_for_retry(connection: sqlite3.Connection, gmail_message_id: str) -> None:
-    """Force a paused/queued email back into the parse queue."""
     timestamp = utc_now()
     connection.execute(
         """

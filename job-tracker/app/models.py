@@ -15,18 +15,8 @@ from app.config import STATUS_OPTIONS, STATUS_STYLES
 
 
 def insert_application(
-    connection: sqlite3.Connection, payload: dict[str, Any], timestamp: str
+    connection: sqlite3.Connection, payload: dict[str, Any], timestamp: str, user_id: int
 ) -> dict[str, Any]:
-    """Insert a new application into the database.
-    
-    Args:
-        connection: Database connection
-        payload: Application data
-        timestamp: Creation timestamp
-        
-    Returns:
-        Created application dictionary
-    """
     application = {
         "id": str(uuid.uuid4()),
         "company": payload["company"],
@@ -44,6 +34,7 @@ def insert_application(
         "gmail_message_id": payload.get("gmail_message_id"),
         "created_at": timestamp,
         "updated_at": timestamp,
+        "user_id": user_id,
     }
 
     connection.execute(
@@ -51,8 +42,8 @@ def insert_application(
         INSERT INTO applications (
             id, company, role, job_url, source, status, applied_date,
             salary_min, salary_max, salary_currency, notes,
-            follow_up_date, source_type, gmail_message_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            follow_up_date, source_type, gmail_message_id, created_at, updated_at, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             application["id"],
@@ -71,6 +62,7 @@ def insert_application(
             application["gmail_message_id"],
             application["created_at"],
             application["updated_at"],
+            application["user_id"],
         ),
     )
     return application
@@ -81,22 +73,14 @@ def update_application(
     application_id: str,
     payload: dict[str, Any],
     partial: bool = False,
+    user_id: int | None = None,
 ) -> dict[str, Any] | None:
-    """Update an existing application.
-    
-    Args:
-        connection: Database connection
-        application_id: ID of application to update
-        payload: Updated application data
-        partial: If True, only update provided fields
-        
-    Returns:
-        Updated application dictionary or None if not found
-        
-    Raises:
-        ValueError: If validation fails
-    """
-    existing = connection.execute("SELECT * FROM applications WHERE id = ?", (application_id,)).fetchone()
+    query = "SELECT * FROM applications WHERE id = ?"
+    params: list[Any] = [application_id]
+    if user_id is not None:
+        query += " AND user_id = ?"
+        params.append(user_id)
+    existing = connection.execute(query, params).fetchone()
     if existing is None:
         return None
 
@@ -141,15 +125,16 @@ def update_application(
 
 
 def fetch_application_by_gmail_message_id(
-    connection: sqlite3.Connection, gmail_message_id: str | None
+    connection: sqlite3.Connection, gmail_message_id: str | None, user_id: int | None = None
 ) -> dict[str, Any] | None:
-    """Fetch a single application by Gmail message ID."""
     if not gmail_message_id:
         return None
-    row = connection.execute(
-        "SELECT * FROM applications WHERE gmail_message_id = ?",
-        (gmail_message_id,),
-    ).fetchone()
+    query = "SELECT * FROM applications WHERE gmail_message_id = ?"
+    params: list[Any] = [gmail_message_id]
+    if user_id is not None:
+        query += " AND user_id = ?"
+        params.append(user_id)
+    row = connection.execute(query, params).fetchone()
     return serialize_application(row) if row else None
 
 
@@ -158,12 +143,17 @@ def find_fuzzy_application(
     company: str,
     role: str,
     threshold: float = 0.85,
+    user_id: int | None = None,
 ) -> dict[str, Any] | None:
-    """Find an application by fuzzy company and role matching."""
-    rows = connection.execute("SELECT * FROM applications").fetchall()
+    query = "SELECT * FROM applications"
+    params: list[Any] = []
+    if user_id is not None:
+        query += " WHERE user_id = ?"
+        params.append(user_id)
+    rows = connection.execute(query, params).fetchall()
+
     best_match: sqlite3.Row | None = None
     best_score = 0.0
-
     normalized_company = _normalize_match_value(company)
     normalized_role = _normalize_match_value(role)
 
@@ -174,7 +164,6 @@ def find_fuzzy_application(
         role_score = SequenceMatcher(None, normalized_role, _normalize_match_value(row["role"])).ratio()
         if company_score < 0.78 or role_score < 0.72:
             continue
-
         score = (company_score * 0.6) + (role_score * 0.4)
         if score > best_score:
             best_score = score
@@ -185,78 +174,58 @@ def find_fuzzy_application(
     return serialize_application(best_match)
 
 
-def delete_application(app: Flask, application_id: str) -> bool:
-    """Delete an application from the database.
-    
-    Args:
-        app: Flask application instance
-        application_id: ID of application to delete
-        
-    Returns:
-        True if application was deleted, False if not found
-    """
+def delete_application(app: Flask, application_id: str, user_id: int | None = None) -> bool:
     connection = connect_db(app)
     try:
-        cursor = connection.execute("DELETE FROM applications WHERE id = ?", (application_id,))
+        query = "DELETE FROM applications WHERE id = ?"
+        params: list[Any] = [application_id]
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(user_id)
+        cursor = connection.execute(query, params)
         connection.commit()
         return cursor.rowcount > 0
     finally:
         connection.close()
 
 
-def fetch_application(app: Flask, application_id: str | None) -> dict[str, Any] | None:
-    """Fetch a single application by ID.
-    
-    Args:
-        app: Flask application instance
-        application_id: ID of application to fetch
-        
-    Returns:
-        Application dictionary or None if not found
-    """
+def fetch_application(app: Flask, application_id: str | None, user_id: int | None = None) -> dict[str, Any] | None:
     if not application_id:
         return None
     connection = connect_db(app)
     try:
-        return fetch_application_by_id(connection, application_id)
+        query = "SELECT * FROM applications WHERE id = ?"
+        params: list[Any] = [application_id]
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(user_id)
+        row = connection.execute(query, params).fetchone()
+        return serialize_application(row) if row else None
     finally:
         connection.close()
 
 
 def fetch_application_by_id(connection: sqlite3.Connection, application_id: str) -> dict[str, Any] | None:
-    """Fetch a single application by ID using an existing connection.
-    
-    Args:
-        connection: Database connection
-        application_id: ID of application to fetch
-        
-    Returns:
-        Application dictionary or None if not found
-    """
     row = connection.execute("SELECT * FROM applications WHERE id = ?", (application_id,)).fetchone()
     return serialize_application(row) if row else None
 
 
 def fetch_applications(
-    app: Flask, filters: dict[str, str] | None = None, sort_by: str | None = None, order: str | None = "desc"
+    app: Flask,
+    filters: dict[str, str] | None = None,
+    sort_by: str | None = None,
+    order: str | None = "desc",
+    user_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch all applications with optional filtering and sorting.
-    
-    Args:
-        app: Flask application instance
-        filters: Optional dict with 'status', 'source', and/or 'search' keys
-        sort_by: Column name to sort by
-        order: Sort direction ('asc' or 'desc')
-        
-    Returns:
-        List of application dictionaries
-    """
     filters = filters or {}
     connection = connect_db(app)
     try:
         query = ["SELECT * FROM applications WHERE 1 = 1"]
         parameters: list[Any] = []
 
+        if user_id is not None:
+            query.append("AND user_id = ?")
+            parameters.append(user_id)
         if filters.get("status"):
             query.append("AND status = ?")
             parameters.append(filters["status"])
@@ -268,7 +237,6 @@ def fetch_applications(
             search_value = f"%{filters['search'].lower()}%"
             parameters.extend([search_value, search_value])
 
-        # Sorting logic
         valid_columns = {
             "company": "company COLLATE NOCASE",
             "role": "role COLLATE NOCASE",
@@ -278,14 +246,11 @@ def fetch_applications(
             "follow_up_date": "date(follow_up_date)",
             "salary": "salary_min",
         }
-        
         db_column = valid_columns.get(sort_by, "date(applied_date)")
         db_order = "ASC" if order and order.lower() == "asc" else "DESC"
-        
-        # secondary sort by company also needs NOCASE for consistency
         secondary_sort = "company COLLATE NOCASE ASC" if sort_by != "company" else "role COLLATE NOCASE ASC"
-        
         query.append(f"ORDER BY {db_column} {db_order}, {secondary_sort}")
+
         rows = connection.execute(" ".join(query), parameters).fetchall()
         return [serialize_application(row) for row in rows]
     finally:
@@ -293,16 +258,6 @@ def fetch_applications(
 
 
 def serialize_application(row: sqlite3.Row | None) -> dict[str, Any]:
-    """Convert database row to application dictionary.
-    
-    Adds computed fields like is_overdue and status_class.
-    
-    Args:
-        row: Database row from sqlite3.Row
-        
-    Returns:
-        Application dictionary with computed fields
-    """
     if row is None:
         return {}
     data = dict(row)
@@ -313,7 +268,6 @@ def serialize_application(row: sqlite3.Row | None) -> dict[str, Any]:
 
 
 def _normalize_match_value(value: str | None) -> str:
-    """Normalize text for fuzzy matching."""
     if not value:
         return ""
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()

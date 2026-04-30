@@ -66,6 +66,7 @@ def delete_watchers_for_application(
 def match_application_by_sender(
     connection: sqlite3.Connection,
     sender: str,
+    user_id: int | None = None,
 ) -> str | None:
     """Return the application_id whose watcher matches *sender*, or None.
 
@@ -81,9 +82,20 @@ def match_application_by_sender(
     sender_lower = sender.lower()
     extracted = _extract_email(sender_lower)
 
-    rows = connection.execute(
-        "SELECT application_id, sender_pattern FROM application_watchers"
-    ).fetchall()
+    if user_id is not None:
+        rows = connection.execute(
+            """
+            SELECT aw.application_id, aw.sender_pattern
+              FROM application_watchers aw
+              JOIN applications a ON a.id = aw.application_id
+             WHERE a.user_id = ?
+            """,
+            (user_id,),
+        ).fetchall()
+    else:
+        rows = connection.execute(
+            "SELECT application_id, sender_pattern FROM application_watchers"
+        ).fetchall()
 
     for row in rows:
         pattern = row["sender_pattern"]
