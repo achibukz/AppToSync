@@ -999,7 +999,11 @@
       });
     </script>
     <script>
-      document.getElementById('export-csv-btn').href = '/export/csv' + window.location.search;
+      (function() {
+        const params = new URLSearchParams(window.location.search);
+        params.set('local_date', new Date().toLocaleDateString('en-CA'));
+        document.getElementById('export-csv-btn').href = '/export/csv?' + params.toString();
+      })();
     </script>
   </body>
 </html>

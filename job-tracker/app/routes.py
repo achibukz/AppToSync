@@ -476,7 +476,10 @@ def register_routes(app: Flask) -> None:
         writer.writeheader()
         writer.writerows(applications)
 
-        filename = f"applications_{date.today().isoformat()}.csv"
+        local_date = request.args.get("local_date", "").strip()
+        if not local_date or len(local_date) != 10 or local_date[4] != "-" or local_date[7] != "-":
+            local_date = date.today().isoformat()
+        filename = f"applications_{local_date}.csv"
         return Response(
             output.getvalue(),
             mimetype="text/csv",

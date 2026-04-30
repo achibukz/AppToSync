@@ -68,12 +68,23 @@ class ExportCsvTests(unittest.TestCase):
         rows = self._parse_csv(resp)
         self.assertEqual(rows, [])
 
-    def test_export_content_disposition(self) -> None:
+    def test_export_content_disposition_server_date_fallback(self) -> None:
         resp = self.client.get("/export/csv")
         disposition = resp.headers.get("Content-Disposition", "")
         today = date.today().isoformat()
         self.assertIn(f"applications_{today}.csv", disposition)
         self.assertIn("attachment", disposition)
+
+    def test_export_content_disposition_client_date(self) -> None:
+        resp = self.client.get("/export/csv?local_date=2026-05-01")
+        disposition = resp.headers.get("Content-Disposition", "")
+        self.assertIn("applications_2026-05-01.csv", disposition)
+
+    def test_export_content_disposition_invalid_client_date_falls_back(self) -> None:
+        resp = self.client.get("/export/csv?local_date=bad-date")
+        disposition = resp.headers.get("Content-Disposition", "")
+        today = date.today().isoformat()
+        self.assertIn(f"applications_{today}.csv", disposition)
 
     def test_export_all_columns_present(self) -> None:
         _post_app(self.client)
