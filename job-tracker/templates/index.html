@@ -857,7 +857,7 @@
       function showToast(message, type = 'success') {
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
-        toast.textContent = message;
+        toast.innerHTML = message.replace(/\n/g, '<br>');
         document.body.appendChild(toast);
         requestAnimationFrame(() => toast.classList.add('visible'));
         setTimeout(() => {
@@ -937,17 +937,46 @@
           btn.textContent = 'Syncing…';
 
           try {
-            await fetch('/api/gmail/sync', {
+            const res = await fetch('/api/gmail/sync', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ parser_choice: choice })
             });
+            const data = await res.json();
+            sessionStorage.setItem('syncResult', JSON.stringify(data));
           } catch {
-            // ignore network errors — reload will show server flash message
+            sessionStorage.setItem('syncResult', JSON.stringify({ ok: false, error: 'Network error during sync' }));
           } finally {
             window.location.reload();
           }
         });
+      }
+
+      // Show sync result toast after page reload
+      const _syncResult = sessionStorage.getItem('syncResult');
+      if (_syncResult) {
+        sessionStorage.removeItem('syncResult');
+        try {
+          const d = JSON.parse(_syncResult);
+          if (!d.ok) {
+            showToast(d.error || 'Sync failed', 'error');
+          } else {
+            const fetched = d.fetched ?? 0;
+            const updated = d.updated ?? 0;
+            const pending = d.pending_review ?? 0;
+            const paused  = d.paused ?? 0;
+            const lines = [];
+            if (fetched === 0) {
+              lines.push('Sync complete — no new updates');
+            } else {
+              if (updated > 0) lines.push(`${updated} application${updated !== 1 ? 's' : ''} auto-updated`);
+              if (pending > 0) lines.push(`${pending} email${pending !== 1 ? 's' : ''} pending review`);
+              if (paused > 0)  lines.push(`${paused} email${paused !== 1 ? 's' : ''} paused — retry available`);
+              if (lines.length === 0) lines.push('Sync complete — no new updates');
+            }
+            showToast(lines.join('\n'), 'success');
+          }
+        } catch { /* malformed sessionStorage entry — ignore */ }
       }
 
       // Filter button toggle
