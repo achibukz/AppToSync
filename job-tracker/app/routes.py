@@ -28,11 +28,13 @@ from app.gmail import (
     sync_gmail_messages,
 )
 from app.parsed_emails import (
+    fetch_auto_updated_current_session,
     fetch_email,
     fetch_paused,
     fetch_pending_review,
     mark_accepted,
     mark_dismissed,
+    mark_reverted,
 )
 from app.watchers import (
     delete_watchers_for_application,
@@ -92,6 +94,7 @@ def _render_dashboard(app: Flask, user_id: int, *, active_tab: str = "dashboard"
     try:
         pending_emails = fetch_pending_review(connection, user_id)
         paused_emails = fetch_paused(connection, user_id)
+        auto_updated_emails = fetch_auto_updated_current_session(connection, user_id)
     finally:
         connection.close()
 
@@ -119,6 +122,7 @@ def _render_dashboard(app: Flask, user_id: int, *, active_tab: str = "dashboard"
         gmail_status=gmail_status,
         pending_emails=pending_emails,
         paused_emails=paused_emails,
+        auto_updated_emails=auto_updated_emails,
         parser_choices=[(v, label) for (v, label, _p, _m) in PARSER_MODEL_CHOICES],
         current_parser_choice=session.get("parser_choice", DEFAULT_PARSER_CHOICE),
         current_user=current_user,
@@ -431,9 +435,8 @@ def register_routes(app: Flask) -> None:
                 f"{result.get('paused', 0)} paused.",
                 "success",
             )
-            names = result.get("auto_updated_names") or []
-            if names:
-                flash("Auto-updated: " + " · ".join(names), "success")
+            for entry in result.get("auto_updated_names") or []:
+                flash(f"{entry['company']} updated to {entry['new_status']}", "success")
         else:
             flash(result["error"], "error")
         return redirect(url_for("dashboard"))
@@ -443,6 +446,31 @@ def register_routes(app: Flask) -> None:
     @app.get("/api/health")
     def health() -> Any:
         return jsonify({"status": "ok", "service": "job-tracker"})
+
+    @app.post("/api/emails/<message_id>/revert")
+    @login_required
+    def api_revert_email(message_id: str) -> Any:
+        user_id: int = session["user_id"]
+        connection = connect_db(app)
+        try:
+            record = fetch_email(connection, message_id)
+            if record is None or record.get("user_id") != user_id:
+                return jsonify({"ok": False, "error": "Not found"}), 404
+            if record.get("parse_status") != "auto_updated":
+                return jsonify({"ok": False, "error": "Email is not an auto-update"}), 400
+            if record.get("reverted"):
+                return jsonify({"ok": False, "error": "Already reverted"}), 400
+            old_status = record.get("old_status")
+            application_id = record.get("application_id")
+            if not old_status or not application_id:
+                return jsonify({"ok": False, "error": "Cannot revert: missing data"}), 400
+            from app.models import update_application
+            update_application(connection, application_id, {"status": old_status}, partial=True, user_id=user_id)
+            mark_reverted(connection, message_id, user_id)
+            connection.commit()
+        finally:
+            connection.close()
+        return jsonify({"ok": True})
 
     @app.get("/api/applications")
     @login_required

@@ -429,6 +429,44 @@
             </div>
           </article>
           {% endif %}
+
+          {% if auto_updated_emails %}
+          <article class="card emails-card emails-auto-updated">
+            <div class="section-heading">
+              <h2>Auto-updated this sync</h2>
+              <p>These applications were automatically updated based on incoming emails. Revert if the change was incorrect.</p>
+            </div>
+            <div class="email-list">
+              {% for email in auto_updated_emails %}
+              <div class="email-item auto-updated" data-message-id="{{ email.gmail_message_id }}">
+                <div class="email-meta">
+                  <span class="email-from">{{ email.from_address or 'Unknown sender' }}</span>
+                  <span class="email-date">{{ email.last_parsed_at[:10] if email.last_parsed_at else '' }}</span>
+                </div>
+                <div class="email-subject">{{ email.subject or '(no subject)' }}</div>
+                <div class="email-parsed">
+                  <span class="email-tag company">{{ email.parsed_company or '?' }}</span>
+                  <span class="email-tag role">{{ email.parsed_role or '?' }}</span>
+                  {% if email.old_status %}
+                  <span class="email-tag status muted">{{ email.old_status }}</span>
+                  <span class="email-tag status-arrow">→</span>
+                  {% endif %}
+                  <span class="email-tag status">{{ email.parsed_status or '?' }}</span>
+                </div>
+                <div class="email-actions">
+                  {% if email.reverted %}
+                  <span class="email-tag reverted">Reverted</span>
+                  {% else %}
+                  <button class="button secondary revert-email-btn"
+                          data-message-id="{{ email.gmail_message_id }}"
+                          type="button">Revert</button>
+                  {% endif %}
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </article>
+          {% endif %}
         </div>
       </div>
       </section><!-- /.main-column -->
@@ -995,6 +1033,34 @@
           params.set('order', newOrder);
           
           window.location.href = `/?${params.toString()}`;
+        });
+      });
+
+      // Revert auto-updated email
+      document.querySelectorAll('.revert-email-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const messageId = btn.dataset.messageId;
+          btn.disabled = true;
+          btn.textContent = 'Reverting…';
+          try {
+            const res = await fetch(`/api/emails/${messageId}/revert`, { method: 'POST' });
+            const data = await res.json();
+            if (data.ok) {
+              showToast('Status reverted.');
+              btn.replaceWith(Object.assign(document.createElement('span'), {
+                className: 'email-tag reverted',
+                textContent: 'Reverted',
+              }));
+            } else {
+              showToast(data.error || 'Revert failed.', 'error');
+              btn.disabled = false;
+              btn.textContent = 'Revert';
+            }
+          } catch {
+            showToast('Revert failed.', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Revert';
+          }
         });
       });
     </script>

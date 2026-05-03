@@ -332,7 +332,7 @@ def _parse_pending_emails(
     parser_provider: str,
     gemini_model: str,
     groq_model: str,
-) -> tuple[int, int, int, int, int, str | None, list[str]]:
+) -> tuple[int, int, int, int, int, str | None, list[dict]]:
     """Parse every paused email row.
 
     Returns ``(parsed, auto_updated, pending_review, paused, not_job, latest_error)``.
@@ -343,7 +343,7 @@ def _parse_pending_emails(
     still_paused = 0
     not_job = 0
     latest_error: str | None = None
-    auto_updated_names: list[str] = []
+    auto_updated_names: list[dict] = []
 
     for record in fetch_emails_needing_parse(connection, user_id):
         message_id = record["gmail_message_id"]
@@ -398,7 +398,8 @@ def _parse_pending_emails(
             target = find_fuzzy_application(connection, cleaned, role, user_id=user_id)
 
         if target is not None:
-            new_status = _choose_status(target.get("status"), parsed_status_value)
+            old_status = target.get("status")
+            new_status = _choose_status(old_status, parsed_status_value)
             notes = _email_notes(record.get("subject"), parsed_status_value)
             payload = {
                 "company": target["company"],
@@ -426,9 +427,14 @@ def _parse_pending_emails(
                 parsed_source=parsed_source,
                 parsed_applied_date=parsed_applied_date,
                 application_id=target["id"],
+                old_status=old_status,
             )
             auto_updated += 1
-            auto_updated_names.append(f"{target['company']} — {target['role']} → {new_status}")
+            auto_updated_names.append({
+                "company": target["company"],
+                "role": target["role"],
+                "new_status": new_status,
+            })
             continue
 
         # No match: queue for user review.

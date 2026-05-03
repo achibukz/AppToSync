@@ -120,6 +120,7 @@ def update_parse_success(
     parsed_source: str | None = None,
     parsed_applied_date: str | None = None,
     application_id: str | None = None,
+    old_status: str | None = None,
 ) -> None:
     if parse_status not in PARSE_STATUSES:
         raise ValueError(f"Invalid parse_status: {parse_status}")
@@ -140,6 +141,7 @@ def update_parse_success(
                parsed_source = ?,
                parsed_applied_date = ?,
                application_id = COALESCE(?, application_id),
+               old_status = COALESCE(?, old_status),
                updated_at = ?
          WHERE gmail_message_id = ?
         """,
@@ -155,6 +157,7 @@ def update_parse_success(
             parsed_source,
             parsed_applied_date,
             application_id,
+            old_status,
             timestamp,
             gmail_message_id,
         ),
@@ -203,3 +206,37 @@ def mark_for_retry(connection: sqlite3.Connection, gmail_message_id: str) -> Non
         """,
         (timestamp, gmail_message_id),
     )
+
+
+def mark_reverted(
+    connection: sqlite3.Connection, gmail_message_id: str, user_id: int
+) -> None:
+    timestamp = utc_now()
+    connection.execute(
+        """
+        UPDATE parsed_emails
+           SET reverted = 1,
+               updated_at = ?
+         WHERE gmail_message_id = ? AND user_id = ?
+        """,
+        (timestamp, gmail_message_id, user_id),
+    )
+
+
+def fetch_auto_updated_current_session(
+    connection: sqlite3.Connection, user_id: int
+) -> list[dict[str, Any]]:
+    """Returns auto_updated emails from the most recent sync."""
+    rows = connection.execute(
+        """
+        SELECT pe.* FROM parsed_emails pe
+         WHERE pe.user_id = ? AND pe.parse_status = 'auto_updated'
+           AND pe.last_parsed_at >= COALESCE(
+               (SELECT last_sync_at FROM gmail_tokens WHERE user_id = ?),
+               datetime('now', '-1 hour')
+           )
+         ORDER BY pe.last_parsed_at DESC
+        """,
+        (user_id, user_id),
+    ).fetchall()
+    return [dict(row) for row in rows]
