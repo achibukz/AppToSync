@@ -176,6 +176,10 @@ def _migrate_add_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE parsed_emails ADD COLUMN parsed_source TEXT")
     if "parsed_applied_date" not in email_cols:
         connection.execute("ALTER TABLE parsed_emails ADD COLUMN parsed_applied_date TEXT")
+    if "old_status" not in email_cols:
+        connection.execute("ALTER TABLE parsed_emails ADD COLUMN old_status TEXT")
+    if "reverted" not in email_cols:
+        connection.execute("ALTER TABLE parsed_emails ADD COLUMN reverted INTEGER NOT NULL DEFAULT 0")
 
 
 def _seed_owner_and_migrate(connection: sqlite3.Connection) -> None:

@@ -1383,6 +1383,24 @@ pre {
   color: var(--muted);
 }
 
+.email-tag.muted {
+  opacity: 0.5;
+}
+
+.email-tag.status-arrow {
+  background: none;
+  border: none;
+  padding: 2px 2px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.email-tag.reverted {
+  background: #fef9c3;
+  border-color: #fde047;
+  color: #713f12;
+}
+
 .email-reasoning {
   margin: 0;
   font-size: 0.84rem;
