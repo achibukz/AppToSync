@@ -578,6 +578,14 @@
           tabContents.forEach(c => c.classList.remove('active'));
           btn.classList.add('active');
           document.getElementById(btn.dataset.tab).classList.add('active');
+
+          const params = new URLSearchParams(window.location.search);
+          if (btn.dataset.tab === 'emails') {
+            params.set('tab', 'emails');
+          } else {
+            params.delete('tab');
+          }
+          history.replaceState(null, '', `/?${params.toString()}`);
         });
       });
 
