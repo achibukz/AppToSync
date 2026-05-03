@@ -28,18 +28,28 @@ Runs via `gunicorn` (1 worker, 4 threads) managed by `systemd`. SQLite on the VM
 
 ### Redeploy after code changes
 
-```bash
-# SSH into the VM
-gcloud compute ssh apptosync --zone us-central1-a
+**From local machine (one command):**
 
-# Then on the VM:
-cd ~/JobPilot/job-tracker
-git pull
-uv sync --frozen
-sudo systemctl restart apptosync
+```bash
+gcloud compute ssh apptosync --zone us-central1-a --command "cd ~/JobPilot/job-tracker && git pull && ~/.local/bin/uv sync --frozen && sudo systemctl restart apptosync"
 ```
 
-Health check: `curl https://apptosync.duckdns.org/api/health`
+Then verify: `curl https://apptosync.duckdns.org/api/health`
+
+**Or manually via SSH:**
+
+```bash
+gcloud compute ssh apptosync --zone us-central1-a
+
+# On the VM:
+cd ~/JobPilot/job-tracker
+git pull
+~/.local/bin/uv sync --frozen
+sudo systemctl restart apptosync
+sudo systemctl is-active apptosync  # Should print: active
+```
+
+Note: `uv` is installed at `~/.local/bin/uv`, not in PATH.
 
 ## Architecture
 
