@@ -727,11 +727,13 @@ def _choose_status(existing_status: str | None, parsed_status: str | None) -> st
     priorities = {
         "Applied": 0,
         "Interview Scheduled": 1,
-        "Technical Test": 2,
-        "Final Interview": 3,
-        "Offer Received": 4,
-        "Rejected": 5,
-        "Ghosted": 6,
+        "Interview Done": 2,
+        "Technical Test": 3,
+        "Final Interview": 4,
+        "Offer Received": 5,
+        "Rejected": 6,
+        "Ghosted": 7,
+        "Not For Me": 8,
     }
     return parsed_status if priorities.get(parsed_status, 0) >= priorities.get(existing_status, 0) else existing_status
 

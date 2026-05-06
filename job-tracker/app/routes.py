@@ -64,7 +64,7 @@ def _email_note(record: dict[str, Any]) -> str:
 
 
 def build_stats(applications: list[dict[str, Any]]) -> dict[str, int]:
-    active_statuses = {"Applied", "Interview Scheduled", "Technical Test", "Final Interview"}
+    active_statuses = {"Applied", "Interview Scheduled", "Interview Done", "Technical Test", "Final Interview"}
     return {
         "total": len(applications),
         "active": sum(1 for a in applications if a["status"] in active_statuses),

@@ -684,6 +684,11 @@ thead th.sortable:hover {
   color: #374151;
 }
 
+.badge.teal {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
 .overdue {
   background: linear-gradient(90deg, rgba(185, 122, 30, 0.12), transparent 34%);
 }
@@ -1028,6 +1033,7 @@ pre {
 .status-dot.green { background: #22c55e; }
 .status-dot.red { background: #ef4444; }
 .status-dot.gray { background: #9ca3af; }
+.status-dot.teal { background: #14b8a6; }
 
 .status-option:hover {
   background: var(--panel-soft);

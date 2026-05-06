@@ -867,8 +867,8 @@
       }
 
       // Status option click - change status without page reload
-      const STATUS_COLORS = ['blue','yellow','orange','purple','green','red','gray'];
-      const ACTIVE_STATUSES = new Set(['Applied','Interview Scheduled','Technical Test','Final Interview']);
+      const STATUS_COLORS = ['blue','yellow','teal','orange','purple','green','red','gray'];
+      const ACTIVE_STATUSES = new Set(['Applied','Interview Scheduled','Interview Done','Technical Test','Final Interview']);
 
       document.querySelectorAll('.status-option').forEach(option => {
         option.addEventListener('click', (e) => {

@@ -4,11 +4,13 @@
 STATUS_OPTIONS = [
     "Applied",
     "Interview Scheduled",
+    "Interview Done",
     "Technical Test",
     "Final Interview",
     "Offer Received",
     "Rejected",
     "Ghosted",
+    "Not For Me",
 ]
 
 # Source options for job applications
@@ -51,11 +53,13 @@ GMAIL_POLL_INTERVAL_SECONDS = 60
 STATUS_STYLES = {
     "Applied": "blue",
     "Interview Scheduled": "yellow",
+    "Interview Done": "teal",
     "Technical Test": "orange",
     "Final Interview": "purple",
     "Offer Received": "green",
     "Rejected": "red",
     "Ghosted": "gray",
+    "Not For Me": "gray",
 }
 
 # Month name to number mapping
