@@ -87,7 +87,7 @@ def _render_dashboard(app: Flask, user_id: int, *, active_tab: str = "dashboard"
     editing_application = fetch_application(app, edit_id, user_id=user_id) if edit_id else None
     stats = build_stats(applications)
     gmail_status = get_gmail_status(app, user_id)
-    if gmail_status.get("last_sync_error"):
+    if gmail_status.get("last_sync_error") and gmail_status.get("connected"):
         clear_gmail_sync_error(app, user_id)
 
     connection = connect_db(app)

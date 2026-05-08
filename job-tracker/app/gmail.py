@@ -95,7 +95,7 @@ def get_gmail_status(app: Flask, user_id: int) -> dict[str, Any]:
         reference_time = row["last_sync_at"] or row["connected_at"]
         next_sync_at = _add_minutes(reference_time, sync_interval_minutes)
         return {
-            "connected": True,
+            "connected": bool(row["credentials_json"]),
             "oauth_configured": configured,
             "connected_email": row["connected_email"],
             "connected_at": row["connected_at"],
@@ -202,6 +202,8 @@ def sync_gmail_messages(
 
         credentials = _credentials_from_row(row)
         if credentials is None:
+            if not row["credentials_json"]:
+                return {"ok": False, "error": "Gmail access was revoked — please reconnect Gmail.", "created": 0, "updated": 0, "skipped": 0}
             return {"ok": False, "error": "Gmail OAuth dependencies are not installed.", "created": 0, "updated": 0, "skipped": 0}
 
         refresh_error = _refresh_credentials_if_needed(connection, credentials, user_id)
@@ -581,6 +583,13 @@ def _refresh_credentials_if_needed(connection, credentials, user_id: int) -> str
     try:
         credentials.refresh(Request())
     except Exception as exc:
+        if "invalid_grant" in str(exc):
+            connection.execute(
+                "UPDATE gmail_tokens SET credentials_json = NULL, last_sync_error = ?, updated_at = ? WHERE user_id = ?",
+                ("Gmail access was revoked — please reconnect Gmail.", utc_now(), user_id),
+            )
+            connection.commit()
+            return "Gmail access was revoked — please reconnect Gmail."
         return f"Gmail token refresh failed: {exc}"
 
     connection.execute(
@@ -592,7 +601,7 @@ def _refresh_credentials_if_needed(connection, credentials, user_id: int) -> str
 
 
 def _credentials_from_row(row):
-    if Credentials is None:
+    if Credentials is None or not row["credentials_json"]:
         return None
     info = json.loads(row["credentials_json"])
     return Credentials.from_authorized_user_info(info, scopes=GMAIL_SCOPES)
