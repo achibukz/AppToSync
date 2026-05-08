@@ -26,7 +26,7 @@ def normalize_payload(payload: dict[str, Any], partial: bool = False) -> dict[st
         "job_url": clean_string(payload.get("job_url")),
         "source": clean_string(payload.get("source")) or "Other",
         "status": clean_string(payload.get("status")) or "Applied",
-        "applied_date": clean_string(payload.get("applied_date")) or date.today().isoformat(),
+        "applied_date": clean_string(payload.get("applied_date")) or (None if partial else date.today().isoformat()),
         "salary_min": to_float(payload.get("salary_min")),
         "salary_max": to_float(payload.get("salary_max")),
         "salary_currency": clean_string(payload.get("salary_currency")) or "PHP",
